@@ -1,8 +1,9 @@
 """测试 RouterAgent 路由Agent"""
 
 import pytest
+from unittest.mock import patch
 from workflows.router_agent import RouterAgent, TaskType
-from intent.classifier import IntentType
+from intent.classifier import IntentType, IntentResult
 
 
 @pytest.fixture
@@ -71,8 +72,14 @@ class TestClassifyTask:
         assert result == TaskType.KNOWLEDGE_INSPECTION
 
     def test_classify_unknown_short_text(self, router):
-        """测试无法识别的输入默认路由到知识问答"""
-        result = router.classify_task("帮我写一篇文章")
+        """测试无法识别的输入默认路由到知识问答 (mock LLM 分类, 保证单测确定性)"""
+        # 分类器优先走 LLM, 无 key 时 fallback 关键词 —— 两种模式行为不同,
+        # 单测必须 mock 掉外部依赖才能确定性断言
+        with patch.object(router.classifier, "classify",
+                          return_value=IntentResult(
+                              intent=IntentType.UNKNOWN,
+                              confidence=0.5, reasoning="mock")):
+            result = router.classify_task("帮我写一篇文章")
         # UNKNOWN 意图 → 知识问答: 尝试检索比闲聊兜底更合理
         assert result == TaskType.KNOWLEDGE_QA
 

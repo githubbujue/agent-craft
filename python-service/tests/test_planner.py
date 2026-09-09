@@ -1,6 +1,7 @@
 """测试 Planner 规划器"""
 
 import pytest
+from unittest.mock import patch
 from agent.planner import Planner, QuestionType
 from intent.classifier import IntentType, IntentResult
 from agent.state import AgentState
@@ -152,9 +153,15 @@ class TestStepPlanning:
         assert "answer_generation" in steps
 
     def test_plan_identity_steps(self, planner):
-        """测试身份查询步骤规划"""
+        """测试身份查询步骤规划 (mock LLM 分类, 保证单测确定性)"""
         state = AgentState(original_input="你是谁？")
-        steps = planner.plan_steps(state)
+        # 分类器优先走 LLM, 无 key 时 fallback 关键词 —— 两种模式行为不同,
+        # 单测必须 mock 掉外部依赖才能确定性断言
+        with patch.object(planner.classifier, "classify",
+                          return_value=IntentResult(
+                              intent=IntentType.IDENTITY_QUERY,
+                              confidence=0.9, reasoning="mock")):
+            steps = planner.plan_steps(state)
         # 身份查询有专用步骤: 直接返回身份答案, 不走检索
         assert "identity_answer" in steps
         assert "knowledge_search" not in steps
