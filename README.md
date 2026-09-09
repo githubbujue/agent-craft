@@ -1,5 +1,7 @@
 # AgentCraft — 智能知识库问答系统
 
+![CI](https://github.com/githubbujue/agent-craft/actions/workflows/ci.yml/badge.svg)
+
 > Java + Python + React 多服务架构 | 三级 RAG 链路 | 评估层 | 8 步毫秒级调用轨迹
 
 一个面向企业知识场景的智能问答系统：上传文档自动解析入库，用户提问后由多 Agent 协作完成
