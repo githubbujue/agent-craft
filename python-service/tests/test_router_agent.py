@@ -71,10 +71,10 @@ class TestClassifyTask:
         assert result == TaskType.KNOWLEDGE_INSPECTION
 
     def test_classify_unknown_short_text(self, router):
-        """测试短文本无关键词时归类为闲聊"""
+        """测试无法识别的输入默认路由到知识问答"""
         result = router.classify_task("帮我写一篇文章")
-        # 短文本（<10字符）且无疑问词，默认闲聊
-        assert result == TaskType.CHITCHAT
+        # UNKNOWN 意图 → 知识问答: 尝试检索比闲聊兜底更合理
+        assert result == TaskType.KNOWLEDGE_QA
 
     def test_classify_unknown_long_text_defaults_to_knowledge(self, router):
         """测试长文本含'分析'时走推理链路"""

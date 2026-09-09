@@ -155,5 +155,6 @@ class TestStepPlanning:
         """测试身份查询步骤规划"""
         state = AgentState(original_input="你是谁？")
         steps = planner.plan_steps(state)
-        # "你是谁" 当前被归类为闲聊，走 answer_generation
-        assert "answer_generation" in steps
+        # 身份查询有专用步骤: 直接返回身份答案, 不走检索
+        assert "identity_answer" in steps
+        assert "knowledge_search" not in steps
