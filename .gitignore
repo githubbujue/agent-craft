@@ -1,0 +1,66 @@
+# Maven
+/target
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# IDE
+.idea/
+.vscode/
+.claude/
+.playwright-mcp/
+.trae/
+*.iml
+*.ipr
+*.iws
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node.js
+node_modules/
+npm-debug.log
+frontend/dist/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+*.pkl
+*.faiss
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Uploads directory (user generated content)
+uploads/
+!uploads/.gitkeep
+
+# Spring Boot local configuration
+src/main/resources/application-local.yml
+src/main/resources/*.key
+
+# Logs
+logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# 向量索引目录
+faiss_index/
+
+# 个人学习笔记 (不属于项目代码)
+踩坑笔记.md
+AgentCraft学习指南.md
+
+# CodeBuddy 工作区
+.codebuddy/
