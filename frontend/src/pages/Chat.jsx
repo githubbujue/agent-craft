@@ -314,68 +314,90 @@ export default function Chat() {
         aiRequestContent = `请根据图片内容回答问题。图片ID: ${uploadedImageId}\n图片名称: ${uploadedImage.name}\n图片URL: ${uploadedImage.url}\n问题: ${inputMessage}`;
       }
 
-      const response = await chatAPI.sendMessage({
-        userId,
-        conversationId: currentConversation.id,
-        content: aiRequestContent
-      }, {
-        signal: controller.signal
-      });
-
-      if (abortedRequests.has(requestId)) {
-        console.log('Request was aborted, skipping response processing');
-        return;
-      }
-
-      setProcessingStep('generating');
-
-      const aiMessage = {
-        id: response.data.id || thinkingMessageId,
-        conversationId: currentConversation.id,
-        role: 'assistant',
-        content: response.data.content,
-        sources: response.data.sources,
-        feedbackType: response.data.feedbackType || null,
-        taskType: response.data.taskType || null,
-        createTime: response.data.createTime || new Date().toISOString()
-      };
-
-      setMessages(prev => prev.map(msg => msg.id === thinkingMessageId ? aiMessage : msg));
-      setLoading(false);
-      setProcessingStep(null);
-      setAbortController(null);
-
-      loadConversations();
-
+      // 流式接收: 逐 token 实时更新最后一条 assistant 消息（先挂临时 id, 落库后替换为真实 id）
+      let liveMessageId = thinkingMessageId;
+      await chatAPI.sendMessageStream(
+        {
+          userId,
+          conversationId: currentConversation.id,
+          content: aiRequestContent
+        },
+        {
+          onEvent: (evt) => {
+            if (abortedRequests.has(requestId)) return;
+            switch (evt.type) {
+              case 'routed':
+                // 路由确定 → "理解中" 切 "生成中"
+                setProcessingStep('generating');
+                if (evt.task_type) setCurrentTaskType(evt.task_type);
+                break;
+              case 'token':
+                // 首个 token 到达即隐藏思考动画, 开始实时渲染（Markdown 渐进渲染）
+                setProcessingStep(null);
+                setMessages(prev => prev.map(m => m.id === liveMessageId
+                  ? { ...m, content: (m.content || '') + (evt.content || ''), isStreaming: true }
+                  : m));
+                break;
+              case 'end':
+                // end 携带完整回答, 以其为准（比逐 token 拼接更可靠）
+                if (typeof evt.content === 'string') {
+                  setMessages(prev => prev.map(m => m.id === liveMessageId
+                    ? { ...m, content: evt.content } : m));
+                }
+                break;
+              case 'sources':
+                setMessages(prev => prev.map(m => m.id === liveMessageId
+                  ? {
+                      ...m,
+                      sources: JSON.stringify(evt.sources || []),
+                      taskType: evt.task_type || m.taskType
+                    }
+                  : m));
+                break;
+              case 'saved':
+                // 后端已落库: 用真实 messageId 替换临时 id（反馈/点赞依赖真实 id）
+                if (evt.messageId) {
+                  setMessages(prev => prev.map(m => m.id === liveMessageId
+                    ? { ...m, id: evt.messageId } : m));
+                  liveMessageId = evt.messageId;
+                }
+                break;
+              case 'error':
+                setMessages(prev => prev.map(m => m.id === liveMessageId
+                  ? { ...m, content: evt.content || '抱歉，服务暂时不可用。' } : m));
+                break;
+              default:
+                break;
+            }
+          },
+          onComplete: () => {
+            // 流结束（正常结束 / 用户中止 都会走这里）: 统一收尾
+            setMessages(prev => prev.map(m => (m.id === liveMessageId || m.isStreaming)
+              ? { ...m, isStreaming: false, processingStep: null }
+              : m));
+            setLoading(false);
+            setProcessingStep(null);
+            setAbortController(null);
+            loadConversations();
+          },
+          onError: (err) => {
+            console.error('发送消息失败:', err);
+            setMessages(prev => prev.map(m => m.id === liveMessageId
+              ? { ...m, content: '抱歉，我暂时无法回答这个问题，请稍后再试。', isStreaming: false }
+              : m));
+            setLoading(false);
+            setProcessingStep(null);
+            setAbortController(null);
+          }
+        },
+        { signal: controller.signal }
+      );
     } catch (err) {
-      // 检查是否是取消请求
-      const isAborted = err.name === 'AbortError' || 
-                        err.message?.includes('cancel') || 
-                        err.message?.includes('abort') ||
-                        err.code === 'ERR_CANCELED';
-      
-      if (isAborted) {
-        console.log('Request was aborted by user');
-        const abortedMessage = {
-          id: thinkingMessageId,
-          conversationId: currentConversation.id,
-          role: 'assistant',
-          content: '已停止回答',
-          createTime: new Date().toISOString()
-        };
-        setMessages(prev => prev.map(msg => msg.id === thinkingMessageId ? abortedMessage : msg));
-        setAbortedRequests(prev => new Set(prev).add(requestId));
-      } else {
-        console.error('发送消息失败:', err);
-        const errorMessage = {
-          id: thinkingMessageId,
-          conversationId: currentConversation.id,
-          role: 'assistant',
-          content: '抱歉，我暂时无法回答这个问题，请稍后再试。',
-          createTime: new Date().toISOString()
-        };
-        setMessages(prev => prev.map(msg => msg.id === thinkingMessageId ? errorMessage : msg));
-      }
+      // 兜底（正常情况下错误已在 onError 中处理）
+      console.error('发送消息异常:', err);
+      setMessages(prev => prev.map(m => m.id === thinkingMessageId
+        ? { ...m, content: '抱歉，我暂时无法回答这个问题，请稍后再试。', isStreaming: false }
+        : m));
       setLoading(false);
       setProcessingStep(null);
       setAbortController(null);
@@ -391,9 +413,12 @@ export default function Chat() {
         );
         if (lastAssistantMessageIndex !== -1) {
           const updatedMessages = [...prev];
+          const target = updatedMessages[lastAssistantMessageIndex];
           updatedMessages[lastAssistantMessageIndex] = {
-            ...updatedMessages[lastAssistantMessageIndex],
-            content: '已停止回答',
+            ...target,
+            // 与后端策略一致: 已生成的内容保留（后端也会保存已生成部分）,
+            // 仅当一个字都还没生成时才显示"已停止回答"
+            content: target.content ? target.content + '\n\n（已停止生成）' : '已停止回答',
             isStreaming: false,
             processingStep: null
           };

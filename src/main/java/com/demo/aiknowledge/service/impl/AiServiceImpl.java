@@ -19,16 +19,21 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 @Service
 @Slf4j
@@ -192,31 +197,7 @@ public class AiServiceImpl implements AiService {
             }
 
             // 2. 构建请求（使用 /ask 接口，它内部已使用 RouterAgent）
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("question", question);
-            requestBody.put("context", context);
-            // 透传会话ID，供 Python 侧读写 Redis 会话记忆
-            if (conversationId != null) {
-                requestBody.put("conversation_id", String.valueOf(conversationId));
-            }
-            // 透传用户ID，供 Python 侧执行留痕(agent_run.user_id)
-            if (userId != null) {
-                requestBody.put("user_id", String.valueOf(userId));
-            }
-            
-            // 判断用户是否为管理员（userId == 1L 为管理员）
-            boolean isAdmin = (userId != null && userId == 1L);
-            String username = null;
-            if (userId != null) {
-                User user = userService.getById(userId);
-                if (user != null) {
-                    username = user.getUsername();
-                    requestBody.put("username", username);
-                    log.info("Added username to request: {}", username);
-                }
-            }
-            requestBody.put("is_admin", isAdmin);
-            log.info("User is admin: {}", isAdmin);
+            Map<String, Object> requestBody = buildAiRequestBody(question, context, userId, conversationId);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -315,6 +296,82 @@ public class AiServiceImpl implements AiService {
         }
     }
 
+
+    /**
+     * 构建调用 Python 问答接口的请求体 —— 同步 ask() 与流式 askStream() 共用。
+     *
+     * <p>为什么抽出来: 参数（尤其 conversation_id / user_id / is_admin）必须两边一致。
+     * 项目曾因跨服务参数断链导致"AI 失忆"（conversation_id 未透传）, 复制粘贴两份
+     * 请求体迟早再次出现不一致, 故收敛为单一事实来源。
+     */
+    private Map<String, Object> buildAiRequestBody(String question, String context,
+                                                   Long userId, Long conversationId) {
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("question", question);
+        requestBody.put("context", context);
+        // 透传会话ID，供 Python 侧读写 Redis 会话记忆
+        if (conversationId != null) {
+            requestBody.put("conversation_id", String.valueOf(conversationId));
+        }
+        // 透传用户ID，供 Python 侧执行留痕(agent_run.user_id)
+        if (userId != null) {
+            requestBody.put("user_id", String.valueOf(userId));
+        }
+
+        // 判断用户是否为管理员（userId == 1L 为管理员）
+        boolean isAdmin = (userId != null && userId == 1L);
+        if (userId != null) {
+            User user = userService.getById(userId);
+            if (user != null) {
+                requestBody.put("username", user.getUsername());
+            }
+        }
+        requestBody.put("is_admin", isAdmin);
+        return requestBody;
+    }
+
+    @Override
+    public void askStream(String question, String context, Long userId, Long conversationId,
+                          Consumer<Map<String, Object>> onEvent) {
+        Map<String, Object> requestBody = buildAiRequestBody(question, context, userId, conversationId);
+        String url = aiServiceUrl + "/ask/stream";
+        log.info(">>> [AI Stream] 调用 Python 流式接口: {}, 请求体: {}", url, requestBody);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+
+        // 关键: 用 execute + ResponseExtractor 逐行读取, 读到一条事件立即回调。
+        // 不能用 postForEntity —— 它会等整个响应体读完才返回, 拿不到"边读边转发"的能力,
+        // 流式就退化成"等待完成后一次性返回"。
+        restTemplate.execute(url, HttpMethod.POST,
+                restTemplate.httpEntityCallback(entity, Map.class),
+                response -> {
+                    try (BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(response.getBody(), StandardCharsets.UTF_8))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            // Python 侧输出格式为 SSE: "data: {json}", 其余行（空行/心跳）忽略
+                            if (!line.startsWith("data:")) {
+                                continue;
+                            }
+                            String payload = line.substring("data:".length()).trim();
+                            if (payload.isEmpty()) {
+                                continue;
+                            }
+                            try {
+                                @SuppressWarnings("unchecked")
+                                Map<String, Object> event = objectMapper.readValue(payload, Map.class);
+                                onEvent.accept(event);
+                            } catch (Exception parseEx) {
+                                // 单个事件解析失败不应中断整条流, 记日志跳过
+                                log.warn("[AI Stream] 事件解析失败已跳过: {}, 原因: {}", payload, parseEx.getMessage());
+                            }
+                        }
+                    }
+                    return null;
+                });
+    }
 
     @Override
     @Async

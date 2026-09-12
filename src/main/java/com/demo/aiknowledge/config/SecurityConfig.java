@@ -33,6 +33,13 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             // 配置请求授权
             .authorizeHttpRequests(auth -> auth
+                // SSE(SseEmitter) 会触发 Servlet 容器的 ASYNC 异步再分发; STATELESS 模式下
+                // SecurityContext 不跨分发保留, 若不放行会在异步分发阶段抛 AccessDenied
+                // (表现为流被掐断: "Response ended prematurely")。
+                // 安全性说明: 首次 REQUEST 分发已完成鉴权, ASYNC/ERROR 只是同一请求的
+                // 内部再分发, 放行它们不构成新的访问入口。
+                .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC,
+                                        jakarta.servlet.DispatcherType.ERROR).permitAll()
                 // 允许OPTIONS预检请求
                 .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                 // 允许所有/api/auth下的请求

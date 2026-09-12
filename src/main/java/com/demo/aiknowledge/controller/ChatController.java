@@ -3,6 +3,9 @@ package com.demo.aiknowledge.controller;
 import com.demo.aiknowledge.common.Result;
 import com.demo.aiknowledge.common.SecurityUtils;
 import com.demo.aiknowledge.dto.ChatRequest;
+import com.demo.aiknowledge.service.ChatStreamService;
+import org.springframework.http.MediaType;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import com.demo.aiknowledge.dto.FeedbackRequest;
 import com.demo.aiknowledge.entity.Conversation;
 import com.demo.aiknowledge.entity.Message;
@@ -29,6 +32,23 @@ import java.util.UUID;
 public class ChatController {
 
     private final ChatService chatService;
+    private final ChatStreamService chatStreamService;
+
+    /**
+     * 流式问答（SSE）
+     *
+     * <p>事件契约（与 Python /api/ask/stream 一致, 末尾追加 saved）:
+     * routed / token / end / sources / error, 最后 saved 事件携带落库后的 messageId。
+     *
+     * <p>为什么用 POST 而非 EventSource: EventSource 只支持 GET 且无法携带
+     * Authorization 头 —— 前端改用 fetch + ReadableStream 读取本端点。
+     */
+    @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamMessage(@RequestBody ChatRequest request) {
+        // 身份取自 JWT（与同步链路一致, 不信任前端传参）
+        Long userId = SecurityUtils.getCurrentUserId();
+        return chatStreamService.streamAnswer(userId, request.getConversationId(), request.getContent());
+    }
 
     @PostMapping("/conversations")
     public Result<Conversation> createConversation(@RequestParam(required = false) String title) {

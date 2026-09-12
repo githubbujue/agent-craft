@@ -115,67 +115,77 @@ export const chatAPI = {
   getConversations: (userId) =>
     api.get(`/chat/conversations?userId=${userId}`),
   sendMessage: (data, config) => api.post('/chat/messages', data, config),
-  sendMessageStream: async (data, onMessage, onError, onComplete) => {
+  /**
+   * 流式问答（SSE）
+   *
+   * 为什么用 fetch + ReadableStream 而不是 EventSource：
+   *   EventSource 只支持 GET, 且无法携带 Authorization 头 —— 本接口是 POST + JWT 鉴权。
+   *
+   * 事件契约（透传自 Python, 末尾追加 saved）:
+   *   routed {task_type} | token {content} | end {content} | sources {sources, task_type}
+   *   | error {content} | saved {messageId}
+   *
+   * @param data     {userId, conversationId, content}
+   * @param handlers {onEvent(evt), onError(err), onComplete()}
+   * @param options  {signal} AbortController 信号 —— 支持"停止生成"
+   */
+  sendMessageStream: async (data, handlers = {}, options = {}) => {
+    const { onEvent, onError, onComplete } = handlers;
     try {
-      // 获取JWT token
       const token = getCookie('accessToken');
-      const headers = {
-        'Content-Type': 'application/json',
-      };
-
-      // 添加Authorization header
+      const headers = { 'Content-Type': 'application/json' };
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      console.log('Sending streaming request with token:', token ? 'present' : 'missing');
-      const response = await fetch('/api/chat/stream/messages', {
+      const response = await fetch('/api/chat/stream', {
         method: 'POST',
-        headers: headers,
+        headers,
         body: JSON.stringify(data),
+        signal: options.signal,
       });
 
-      console.log('Streaming response status:', response.status, response.statusText);
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('Streaming request failed:', response.status, errorText);
-        throw new Error(`HTTP error! status: ${response.status}: ${errorText}`);
+        throw new Error(`HTTP ${response.status}: ${errorText || '请求失败'}`);
       }
-
       if (!response.body) {
-        throw new Error('ReadableStream not supported');
+        throw new Error('当前浏览器不支持流式读取');
       }
 
       const reader = response.body.getReader();
-      const decoder = new TextDecoder();
+      const decoder = new TextDecoder('utf-8');
       let buffer = '';
 
+      // SSE 以空行分隔事件, 逐块读取、按 "\n\n" 切分、解析 data: 行
       while (true) {
         const { done, value } = await reader.read();
-        if (done) {
-          if (onComplete) onComplete();
-          break;
-        }
+        if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n\n');
-        buffer = lines.pop() || '';
+        const chunks = buffer.split('\n\n');
+        buffer = chunks.pop() || ''; // 末尾可能是不完整事件, 留到下一轮
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const jsonStr = line.substring(6).trim();
-            if (jsonStr) {
-              try {
-                const response = JSON.parse(jsonStr);
-                onMessage(response);
-              } catch (error) {
-                console.error('Failed to parse SSE message:', error, jsonStr);
-              }
-            }
+        for (const chunk of chunks) {
+          const dataLine = chunk.split('\n').find(l => l.startsWith('data:'));
+          if (!dataLine) continue;
+          const jsonStr = dataLine.slice(5).trim();
+          if (!jsonStr) continue;
+          try {
+            if (onEvent) onEvent(JSON.parse(jsonStr));
+          } catch (error) {
+            console.error('SSE 事件解析失败:', error, jsonStr);
           }
         }
       }
+      if (onComplete) onComplete();
     } catch (error) {
+      // 用户主动停止（abort）不是错误, 按正常结束处理
+      if (error.name === 'AbortError') {
+        if (onComplete) onComplete();
+        return;
+      }
+      console.error('流式请求失败:', error);
       if (onError) onError(error);
     }
   },

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import iterate_in_threadpool
 from pydantic import BaseModel
 from core.parser import DocumentParser
 from core.vector_store import vector_store
@@ -393,11 +394,18 @@ async def ask_question_stream(request: ChatRequest):
                 return
 
             # 使用 RouterAgent 进行流式任务路由
-            for event_data in router_agent.route_stream(
-                input_text=request.question,
-                context=request.context,
-                username=request.username,
-                is_admin=request.is_admin
+            #
+            # 关键: 同步生成器必须放到工作线程迭代(iterate_in_threadpool), 不能用普通 for。
+            # 原因: route_stream 内部是阻塞式网络 I/O（逐 token 读 LLM 流），
+            # 直接在事件循环里迭代会把循环占满, uvicorn 无法及时把已产生的事件写回客户端,
+            # 表现为"响应头很快返回, 但所有内容直到生成结束才一次性到达"（假流式）。
+            async for event_data in iterate_in_threadpool(
+                router_agent.route_stream(
+                    input_text=request.question,
+                    context=request.context,
+                    username=request.username,
+                    is_admin=request.is_admin
+                )
             ):
                 yield f"data: {event_data}\n\n"
 
