@@ -1,6 +1,7 @@
 package com.demo.aiknowledge.controller;
 
 import com.demo.aiknowledge.common.Result;
+import com.demo.aiknowledge.common.SecurityUtils;
 import com.demo.aiknowledge.dto.ChatRequest;
 import com.demo.aiknowledge.dto.FeedbackRequest;
 import com.demo.aiknowledge.entity.Conversation;
@@ -30,18 +31,24 @@ public class ChatController {
     private final ChatService chatService;
 
     @PostMapping("/conversations")
-    public Result<Conversation> createConversation(@RequestParam Long userId, @RequestParam(required = false) String title) {
+    public Result<Conversation> createConversation(@RequestParam(required = false) String title) {
+        // 身份来自 JWT（SecurityUtils 读取过滤器写入的认证主体）, 不再接收前端传入的 userId
+        Long userId = SecurityUtils.getCurrentUserId();
         return Result.success(chatService.createConversation(userId, title));
     }
 
     @GetMapping("/conversations")
-    public Result<List<Conversation>> getHistory(@RequestParam Long userId) {
+    public Result<List<Conversation>> getHistory() {
+        // 会话列表恒为"当前登录用户"的, 杜绝 ?userId=别人 的水平越权
+        Long userId = SecurityUtils.getCurrentUserId();
         return Result.success(chatService.getHistory(userId));
     }
 
     @PostMapping("/messages")
     public Result<Message> sendMessage(@RequestBody ChatRequest request) {
-        return Result.success(chatService.sendMessage(request.getUserId(), request.getConversationId(), request.getContent()));
+        // 身份取自 token; 请求体中的 userId 一律忽略（可被伪造）
+        Long userId = SecurityUtils.getCurrentUserId();
+        return Result.success(chatService.sendMessage(userId, request.getConversationId(), request.getContent()));
     }
 
     @GetMapping("/messages")

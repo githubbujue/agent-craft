@@ -36,45 +36,38 @@ public class JwtFilter extends OncePerRequestFilter {
 
         String token = request.getHeader("Authorization");
 
-        log.info("JWT Filter processing request: path={}, method={}, hasAuthHeader={}, token={}",
-            request.getRequestURI(), request.getMethod(), token != null, token != null ? "present" : "null");
+        // 安全注意: 日志不打印 token 内容（哪怕是前缀）—— 日志文件可能被集中收集/共享,
+        // token 泄露等同于身份泄露。仅记录是否存在与最终认证结果。
+        log.debug("JWT filter: path={}, method={}, hasAuthHeader={}",
+            request.getRequestURI(), request.getMethod(), token != null);
 
         if (token != null && token.startsWith("Bearer ")) {
             token = token.substring(7);
-            log.info("Extracted token: {}", token.substring(0, Math.min(20, token.length())) + "...");
 
             try {
-                log.info("Validating token...");
                 if (jwtUtil.validateToken(token)) {
-                    log.info("Token validation successful");
                     Map<String, Object> claims = jwtUtil.parseToken(token);
                     String userId = claims.get("userId").toString();
                     String role = (String) claims.get("role");
 
-                    log.info("JWT authenticated user: userId={}, role={}, path={}",
-                        userId, role, request.getRequestURI());
-
-                    // 创建认证对象
+                    // 创建认证对象（principal = userId, 供 SecurityUtils 读取）
                     UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                             userId, null, List.of(new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()))
                     );
 
                     // 设置到安全上下文中
                     SecurityContextHolder.getContext().setAuthentication(authToken);
-                    log.info("Authentication set in SecurityContext for user: {}", userId);
+                    log.debug("JWT authenticated: userId={}, role={}, path={}",
+                            userId, role, request.getRequestURI());
                 } else {
                     log.warn("JWT token validation failed for path: {}", request.getRequestURI());
                 }
             } catch (Exception e) {
-                log.error("JWT token validation failed for path {}: {}", request.getRequestURI(), e.getMessage(), e);
+                log.error("JWT token validation failed for path {}: {}", request.getRequestURI(), e.getMessage());
             }
         } else {
-            log.warn("No JWT token found for path: {}", request.getRequestURI());
+            log.debug("No JWT token found for path: {}", request.getRequestURI());
         }
-
-        // 检查当前的认证状态
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        log.info("Current authentication: {}", auth != null ? auth.getName() : "null");
 
         filterChain.doFilter(request, response);
     }

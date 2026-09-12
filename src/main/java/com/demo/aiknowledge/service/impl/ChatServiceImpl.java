@@ -1,11 +1,14 @@
 package com.demo.aiknowledge.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.demo.aiknowledge.common.ErrorCode;
+import com.demo.aiknowledge.common.SecurityUtils;
 import com.demo.aiknowledge.config.CacheConfig;
 import com.demo.aiknowledge.dto.AiResponse;
 import com.demo.aiknowledge.entity.Conversation;
 import com.demo.aiknowledge.entity.Message;
 import com.demo.aiknowledge.entity.QaLog;
+import com.demo.aiknowledge.exception.BusinessException;
 import com.demo.aiknowledge.mapper.ConversationMapper;
 import com.demo.aiknowledge.mapper.MessageMapper;
 import com.demo.aiknowledge.mapper.QaLogMapper;
@@ -61,20 +64,34 @@ public class ChatServiceImpl implements ChatService {
     @Override
     public Conversation updateConversation(Long conversationId, String title, Boolean isPinned) {
         Conversation conversation = conversationMapper.selectById(conversationId);
-        if (conversation != null) {
-            if (title != null) {
-                conversation.setTitle(title);
-            }
-            if (isPinned != null) {
-                conversation.setIsPinned(isPinned);
-            }
-            conversationMapper.updateById(conversation);
+        if (conversation == null) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMS, "会话不存在");
         }
+        // 归属校验: 禁止改名/置顶他人会话
+        SecurityUtils.checkOwnership(conversation.getUserId());
+
+        if (title != null) {
+            conversation.setTitle(title);
+        }
+        if (isPinned != null) {
+            conversation.setIsPinned(isPinned);
+        }
+        conversationMapper.updateById(conversation);
         return conversation;
     }
 
     @Override
     public Message sendMessage(Long userId, Long conversationId, String content) {
+        // 0. 归属校验: conversationId 由前端传入, 可被伪造 —— 只能向自己的会话发消息。
+        //    userId 由 Controller 从 JWT 提取（可信）, conversation 归属从数据库读取（可信）。
+        Conversation conversation = conversationMapper.selectById(conversationId);
+        if (conversation == null) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMS, "会话不存在");
+        }
+        if (!conversation.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+
         // 1. 短事务①: 用户消息先落库并立即提交
         //    即使后续 AI 调用失败, 用户输入也不会丢（不会出现"消息凭空消失"）
         chatPersistenceService.saveUserMessage(conversationId, userId, content);
@@ -132,6 +149,13 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public List<Message> getMessages(Long conversationId) {
+        // 归属校验: 禁止通过遍历 conversationId 读取他人会话内容（水平越权）
+        Conversation conversation = conversationMapper.selectById(conversationId);
+        if (conversation == null) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMS, "会话不存在");
+        }
+        SecurityUtils.checkOwnership(conversation.getUserId());
+
         // 使用对话上下文服务获取消息，支持滑动窗口和缓存
         return conversationContextService.getConversationContext(conversationId, 20);
     }
@@ -139,6 +163,13 @@ public class ChatServiceImpl implements ChatService {
     @Override
     @Transactional
     public void deleteConversation(Long conversationId) {
+        // 归属校验: 只能删除自己的会话
+        Conversation conversation = conversationMapper.selectById(conversationId);
+        if (conversation == null) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMS, "会话不存在");
+        }
+        SecurityUtils.checkOwnership(conversation.getUserId());
+
         // 删除会话相关的消息
         messageMapper.delete(new LambdaQueryWrapper<Message>().eq(Message::getConversationId, conversationId));
         // 删除会话本身
@@ -153,6 +184,13 @@ public class ChatServiceImpl implements ChatService {
         if (message == null) {
             throw new RuntimeException("消息不存在");
         }
+
+        // 1.1 归属校验: 消息所属会话必须属于当前登录用户（禁止对他人消息刷反馈）
+        Conversation conversation = conversationMapper.selectById(message.getConversationId());
+        if (conversation == null) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMS, "会话不存在");
+        }
+        SecurityUtils.checkOwnership(conversation.getUserId());
 
         // 2. 更新反馈字段
         message.setFeedbackType(feedbackType);

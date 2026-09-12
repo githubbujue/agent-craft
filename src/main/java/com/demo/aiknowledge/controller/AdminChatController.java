@@ -1,6 +1,7 @@
 package com.demo.aiknowledge.controller;
 
 import com.demo.aiknowledge.common.Result;
+import com.demo.aiknowledge.common.SecurityUtils;
 import com.demo.aiknowledge.dto.FeedbackRequest;
 import com.demo.aiknowledge.entity.AdminConversation;
 import com.demo.aiknowledge.entity.AdminMessage;
@@ -21,21 +22,24 @@ public class AdminChatController {
 
     @PostMapping("/conversations")
     public Result<AdminConversation> createConversation(
-            @RequestParam Long adminId,
             @RequestParam(required = false) String title) {
+        // 身份取自 JWT（管理端 token 中的 userId）, 不信任前端传参
+        Long adminId = SecurityUtils.getCurrentUserId();
         return Result.success(adminChatService.createConversation(adminId, title));
     }
 
     @GetMapping("/conversations")
-    public Result<List<AdminConversation>> getHistory(@RequestParam Long adminId) {
+    public Result<List<AdminConversation>> getHistory() {
+        // 恒为当前登录管理员的会话列表
+        Long adminId = SecurityUtils.getCurrentUserId();
         return Result.success(adminChatService.getHistory(adminId));
     }
 
     @PostMapping("/messages")
     public Result<AdminMessage> sendMessage(
-            @RequestParam Long adminId,
             @RequestParam Long conversationId,
             @RequestBody Map<String, String> request) {
+        Long adminId = SecurityUtils.getCurrentUserId();
         String content = request.get("content");
         return Result.success(adminChatService.sendMessage(adminId, conversationId, content));
     }

@@ -9,8 +9,9 @@ export default function Knowledge() {
   const userId = localStorage.getItem('userId');
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [selectedFile, setSelectedFile] = useState(null);
+  // 说明: 用户端知识库仅保留"浏览"能力。
+  // 上传 / 删除属于知识库管理操作, 已收归管理端 —— 后端对应接口也已收紧为 ADMIN 角色,
+  // 前端同步移除入口, 避免普通用户看到无权限的操作按钮。
 
   useEffect(() => {
     if (!userId) {
@@ -52,41 +53,6 @@ export default function Knowledge() {
     }
   };
 
-  const handleFileSelect = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setSelectedFile(file);
-    }
-  };
-
-  const handleUpload = async () => {
-    if (!selectedFile) return;
-
-    setUploading(true);
-    try {
-      await knowledgeAPI.upload(selectedFile);
-      setSelectedFile(null);
-      document.getElementById('file-input').value = '';
-      loadDocuments();
-      alert('上传成功');
-    } catch (err) {
-      alert(err.message || '上传失败');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleDelete = async (id) => {
-    if (!confirm('确定删除此文档吗？')) return;
-
-    try {
-      await knowledgeAPI.delete(id);
-      setDocuments(documents.filter(doc => doc.id !== id));
-    } catch (err) {
-      alert(err.message || '删除失败');
-    }
-  };
-
   const getStatusBadge = (status) => {
     const statusMap = {
       'PENDING': { text: '处理中', className: 'pending' },
@@ -100,31 +66,11 @@ export default function Knowledge() {
   return (
     <div className="knowledge-container">
       <div className="knowledge-header">
-        <h1>知识库管理</h1>
+        {/* 用户端为"知识库浏览"页: 仅查看文档与解析状态, 管理操作在管理端 */}
+        <h1>知识库</h1>
         <button className="btn btn-default" onClick={() => navigate('/chat')}>
           返回聊天
         </button>
-      </div>
-
-      {/* Upload section */}
-      <div className="upload-section card">
-        <h3>上传文档</h3>
-        <div className="upload-area">
-          <input
-            id="file-input"
-            type="file"
-            onChange={handleFileSelect}
-            accept=".txt,.pdf,.doc,.docx,.md"
-          />
-          <button
-            className="btn btn-primary"
-            onClick={handleUpload}
-            disabled={!selectedFile || uploading}
-          >
-            {uploading ? '上传中...' : '上传'}
-          </button>
-        </div>
-        <p className="upload-hint">支持 .txt, .pdf, .doc, .docx, .md 格式</p>
       </div>
 
       {/* Document list */}
@@ -142,7 +88,6 @@ export default function Knowledge() {
                 <th>文档名称</th>
                 <th>状态</th>
                 <th>上传时间</th>
-                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -151,14 +96,6 @@ export default function Knowledge() {
                   <td className="doc-name">{doc.docName}</td>
                   <td>{getStatusBadge(doc.status)}</td>
                   <td>{new Date(doc.createTime).toLocaleString()}</td>
-                  <td>
-                    <button
-                      className="btn btn-danger btn-sm"
-                      onClick={() => handleDelete(doc.id)}
-                    >
-                      删除
-                    </button>
-                  </td>
                 </tr>
               ))}
             </tbody>

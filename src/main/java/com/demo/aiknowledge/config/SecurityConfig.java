@@ -43,8 +43,23 @@ public class SecurityConfig {
                 .requestMatchers("/api/chat/view/image/**").permitAll()
                 // 管理员接口需要ADMIN角色
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                // ===== 鉴权补全: 以下管理能力接口未以 /api/admin 为前缀, 原先只要求"已登录",
+                //       普通用户即可访问, 属垂直越权。逐一收紧为仅 ADMIN =====
+                // 管理助手对话: 可执行知识巡检等管理操作, 绝不许可普通用户
+                .requestMatchers("/api/admin-chat/**").hasRole("ADMIN")
+                // Agent 执行留痕查询: 含全体用户的提问内容/会话归属, 仅管理员可查
+                .requestMatchers("/api/agent-run/**").hasRole("ADMIN")
+                // Agent 运行与步骤查询: 属管理/运维能力
+                .requestMatchers("/api/agent/**").hasRole("ADMIN")
+                // 缓存管理(含清空缓存域/刷新等破坏性操作): 属运维能力, 仅管理员
+                .requestMatchers("/api/cache/**").hasRole("ADMIN")
                 // 用户接口需要USER或ADMIN角色
                 .requestMatchers("/api/chat/**").hasAnyRole("USER", "ADMIN")
+                // 知识库写操作(上传/删除)属管理能力, 收紧为仅 ADMIN —— 普通用户只能浏览
+                // 注意: 规则按声明顺序匹配, 具体规则必须放在下方通配规则之前
+                .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/knowledge/upload").hasRole("ADMIN")
+                .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/api/knowledge/**").hasRole("ADMIN")
+                // 知识库浏览(列表/详情): 登录用户均可
                 .requestMatchers("/api/knowledge/**").hasAnyRole("USER", "ADMIN")
                 // 其他请求需要认证
                 .anyRequest().authenticated()
