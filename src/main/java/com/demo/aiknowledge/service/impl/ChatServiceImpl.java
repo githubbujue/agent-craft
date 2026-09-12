@@ -11,6 +11,7 @@ import com.demo.aiknowledge.mapper.MessageMapper;
 import com.demo.aiknowledge.mapper.QaLogMapper;
 import com.demo.aiknowledge.service.AiService;
 import com.demo.aiknowledge.service.CacheService;
+import com.demo.aiknowledge.service.ChatPersistenceService;
 import com.demo.aiknowledge.service.ChatService;
 import com.demo.aiknowledge.service.ConversationContextService;
 import com.demo.aiknowledge.service.QaUnansweredService;
@@ -36,6 +37,8 @@ public class ChatServiceImpl implements ChatService {
     private final ConversationContextService conversationContextService;
     private final ObjectMapper objectMapper;
     private final CacheService cacheService;
+    /** 短事务持久化服务（拆分事务边界, 详见其接口文档） */
+    private final ChatPersistenceService chatPersistenceService;
 
     @Override
     public Conversation createConversation(Long userId, String title) {
@@ -71,20 +74,12 @@ public class ChatServiceImpl implements ChatService {
     }
 
     @Override
-    @Transactional
     public Message sendMessage(Long userId, Long conversationId, String content) {
-        // 1. 保存用户消息
-        Message userMsg = new Message();
-        userMsg.setConversationId(conversationId);
-        userMsg.setRole("user");
-        userMsg.setContent(content);
-        userMsg.setCreateTime(LocalDateTime.now());
-        messageMapper.insert(userMsg);
+        // 1. 短事务①: 用户消息先落库并立即提交
+        //    即使后续 AI 调用失败, 用户输入也不会丢（不会出现"消息凭空消失"）
+        chatPersistenceService.saveUserMessage(conversationId, userId, content);
 
-        // 1.1 更新对话上下文（用户消息）
-        conversationContextService.updateConversationContext(conversationId, userId, userMsg);
-
-        // 检查是否为第一条消息，如果是则生成标题
+        // 2. 首条消息 → 异步生成标题（@Async, 不阻塞本线程）
         Long msgCount = messageMapper.selectCount(new LambdaQueryWrapper<Message>()
                 .eq(Message::getConversationId, conversationId));
         if (msgCount == 1) { // 明确判断是否为第一条消息
@@ -92,7 +87,7 @@ public class ChatServiceImpl implements ChatService {
              aiService.generateTitle(conversationId, content);
         }
 
-        // 2. 获取对话上下文（获取最近10条消息，包含刚插入的用户消息）
+        // 3. 获取对话上下文（获取最近10条消息，包含刚提交的用户消息）
         List<Message> contextMessages = conversationContextService.getConversationContext(conversationId, 10);
         // 构建上下文字符串
         StringBuilder contextBuilder = new StringBuilder();
@@ -102,8 +97,17 @@ public class ChatServiceImpl implements ChatService {
         String conversationContext = contextBuilder.toString();
         log.debug("对话上下文构建完成，长度: {}，内容: {}", conversationContext.length(), conversationContext);
 
-        // 3. 调用 AI 服务获取回答（传入对话上下文）
-        AiResponse aiResponse = aiService.ask(content, conversationContext, userId, conversationId);
+        // 4. 调用 AI 服务获取回答 —— 在事务之外执行
+        //    此处是 HTTP + LLM 调用(5-15秒), 不再占用数据库连接与行锁;
+        //    失败时仅记录日志并向上抛出, 不产生"用户消息被回滚但 Python 侧记忆已写入"的跨系统不一致
+        AiResponse aiResponse;
+        try {
+            aiResponse = aiService.ask(content, conversationContext, userId, conversationId);
+        } catch (Exception e) {
+            log.error("AI 服务调用失败, 用户消息已持久化 - conversationId: {}, error: {}",
+                    conversationId, e.getMessage());
+            throw e;
+        }
         String answer = aiResponse.getAnswer();
         String sourcesJson = null;
         String taskType = aiResponse.getTaskType();
@@ -116,35 +120,14 @@ public class ChatServiceImpl implements ChatService {
             }
         } else {
             // 如果没有 sources 或者 answer 看起来像不知道，记录到 unanswered
-            // 简单的判断逻辑：如果 answer 包含 "不知道" 或 sources 为空且 answer 很短?
-            // 这里假设 sources 为空且 answer 是兜底回复时记录
             if (answer.contains("抱歉") || answer.contains("无法回答")) {
                  qaUnansweredService.recordUnansweredQuestion(content);
             }
         }
 
-        // 3. 保存 AI 回答
-        Message aiMsg = new Message();
-        aiMsg.setConversationId(conversationId);
-        aiMsg.setRole("assistant");
-        aiMsg.setContent(answer);
-        aiMsg.setSources(sourcesJson);
-        aiMsg.setTaskType(taskType); // 设置任务类型
-        aiMsg.setCreateTime(LocalDateTime.now());
-        messageMapper.insert(aiMsg);
-
-        // 3.1 更新对话上下文（AI消息）
-        conversationContextService.updateConversationContext(conversationId, userId, aiMsg);
-
-        // 4. 记录 QA 日志
-        QaLog qaLog = new QaLog();
-        qaLog.setUserId(userId);
-        qaLog.setQuestion(content);
-        qaLog.setAnswer(answer);
-        qaLog.setCreateTime(LocalDateTime.now());
-        qaLogMapper.insert(qaLog);
-
-        return aiMsg; // 返回 AI 的回答
+        // 5. 短事务②: 保存 AI 回答 + 更新上下文 + QA 日志
+        return chatPersistenceService.saveAssistantMessage(
+                conversationId, userId, content, answer, sourcesJson, taskType);
     }
 
     @Override

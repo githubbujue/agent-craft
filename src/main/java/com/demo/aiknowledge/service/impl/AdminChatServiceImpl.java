@@ -6,6 +6,7 @@ import com.demo.aiknowledge.entity.AdminConversation;
 import com.demo.aiknowledge.entity.AdminMessage;
 import com.demo.aiknowledge.mapper.AdminConversationMapper;
 import com.demo.aiknowledge.mapper.AdminMessageMapper;
+import com.demo.aiknowledge.service.AdminChatPersistenceService;
 import com.demo.aiknowledge.service.AdminChatService;
 import com.demo.aiknowledge.service.AiService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,6 +31,8 @@ public class AdminChatServiceImpl implements AdminChatService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final AiService aiService;
+    /** 短事务持久化服务（拆分事务边界, 详见其接口文档） */
+    private final AdminChatPersistenceService adminChatPersistenceService;
 
     @Override
     public AdminConversation createConversation(Long adminId, String title) {
@@ -66,23 +69,26 @@ public class AdminChatServiceImpl implements AdminChatService {
     }
 
     @Override
-    @Transactional
     public AdminMessage sendMessage(Long adminId, Long conversationId, String content) {
         AdminConversation conversation = adminConversationMapper.selectById(conversationId);
         if (conversation == null || !conversation.getAdminId().equals(adminId)) {
             throw new RuntimeException("会话不存在或无权访问");
         }
 
-        AdminMessage userMsg = new AdminMessage();
-        userMsg.setConversationId(conversationId);
-        userMsg.setRole("user");
-        userMsg.setContent(content);
-        userMsg.setCreateTime(LocalDateTime.now());
-        adminMessageMapper.insert(userMsg);
+        // 1. 短事务①: 管理员消息先落库并立即提交（AI 失败也不丢输入）
+        adminChatPersistenceService.saveUserMessage(conversationId, content);
 
         String context = buildContext(conversationId);
 
-        AiResponse aiResponse = callAdminAgent(content, context, adminId);
+        // 2. 调用 AI 管理助手 —— 在事务之外执行（HTTP, 数秒）
+        AiResponse aiResponse;
+        try {
+            aiResponse = callAdminAgent(content, context, adminId);
+        } catch (Exception e) {
+            log.error("AI 管理助手调用失败, 管理员消息已持久化 - conversationId: {}, error: {}",
+                    conversationId, e.getMessage());
+            throw e;
+        }
 
         String answer = aiResponse.getAnswer();
         String sourcesJson = null;
@@ -96,23 +102,9 @@ public class AdminChatServiceImpl implements AdminChatService {
             }
         }
 
-        AdminMessage aiMsg = new AdminMessage();
-        aiMsg.setConversationId(conversationId);
-        aiMsg.setRole("assistant");
-        aiMsg.setContent(answer);
-        aiMsg.setSources(sourcesJson);
-        aiMsg.setTaskType(taskType);
-        aiMsg.setCreateTime(LocalDateTime.now());
-        adminMessageMapper.insert(aiMsg);
-
-        String title = conversation.getTitle();
-        if (title == null || title.isEmpty() || title.startsWith("新对话") || title.startsWith("新建会话")) {
-            String newTitle = content.length() > 30 ? content.substring(0, 30) + "..." : content;
-            conversation.setTitle(newTitle);
-            adminConversationMapper.updateById(conversation);
-        }
-
-        return aiMsg;
+        // 3. 短事务②: 保存回答 + 按需更新会话标题
+        return adminChatPersistenceService.saveAssistantMessage(
+                conversation, content, answer, sourcesJson, taskType);
     }
 
     @Override
