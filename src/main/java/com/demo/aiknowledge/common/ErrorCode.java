@@ -19,7 +19,10 @@ public enum ErrorCode {
     INVALID_PASSWORD(4008, "密码错误"),
     PASSWORD_TOO_SHORT(4009, "密码长度不能少于6位"),
     INVALID_TOKEN(4010, "无效的token"),
-    FORBIDDEN(4030, "无权访问该资源");
+    FORBIDDEN(4030, "无权访问该资源"),
+
+    // 功能未实现: 主动触发类能力尚未接入 —— 显式报错, 而不是静默返回假数据
+    NOT_IMPLEMENTED(501, "功能未实现");
 
 
     private final int code;
