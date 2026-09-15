@@ -7,6 +7,7 @@
 /* Sidebar */
 .admin-sidebar {
   width: 260px;
+  flex-shrink: 0;      /* 关键: flex 子项默认可压缩, 不锁死的话窄屏下侧边栏会被压扁 */
   background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
   display: flex;
   flex-direction: column;
@@ -100,6 +101,8 @@
 /* Main Content */
 .admin-main {
   flex: 1;
+  min-width: 0;        /* 关键: flex 子项默认 min-width:auto, 会阻止内部产生横向滚动 ——
+                          没有它, .table-container 的 overflow-x 会失效, 变成整页横向滚动 */
   overflow-y: auto;
   padding: 24px;
 }
@@ -175,6 +178,114 @@
   border-bottom: none;
 }
 
+/* ===== 表格布局与响应式 =====
+   背景: .table-container / .ellipsis 两个类名在 JSX 里用了但 CSS 从未定义,
+   .status-badge / .action-btn 也没声明 nowrap —— 空间不足时浏览器只能压缩列宽,
+   于是"已完成"和"查看详情"被挤成两行。
+
+   为什么必须用 table-layout: fixed:
+   默认的 auto 布局下, 列宽由所有行内容"协商"决定, 写在 td 上的 width / max-width /
+   overflow 都只是"建议"(浏览器仍会按内容扩展) —— 36 字符的 UUID 会撑宽整列、
+   省略号完全不生效, 而且表头行与内容行的协商结果还会互相影响, 呈现出"表头与内容错位"。
+   fixed 布局让列宽完全由表头行的声明决定: 同列必然等宽, overflow / text-overflow
+   才真正生效。这是表格对齐问题的正解。
+
+   四层配合:
+     1. 容器横向滚动(空间不够就滚动, 不挤压列)
+     2. table-layout: fixed + 逐列宽度(列宽稳定, 表头与内容严格对齐)
+     3. 短内容列 nowrap, 长文本列"省略号三件套"
+     4. 中等屏幕收紧内边距并下调最小宽度
+
+   注意: 全部用 .table-container > 前缀限定, 避免影响弹窗内的轨迹表(.trace-table)。 */
+
+.table-container {
+  width: 100%;
+  overflow-x: auto;                 /* 关键: 不压缩列宽 */
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-container > .admin-table {
+  table-layout: fixed;              /* 关键: 列宽由声明决定, 表头与内容严格同宽 */
+  min-width: 1060px;                /* 低于此宽度则横向滚动 */
+}
+
+.table-container > .admin-table th,
+.table-container > .admin-table td {
+  white-space: nowrap;              /* 短内容列直接受益, 不再折行 */
+  overflow: hidden;                 /* fixed 布局下与 text-overflow 配合才生效 */
+  text-overflow: ellipsis;
+}
+
+/* 表头: 显式左对齐(覆盖浏览器对 th 的默认居中), 并去掉字距与大写转换 ——
+   中文表头不需要它们, 字距还会让表头文字看起来"散开", 与内容起点产生视觉偏差 */
+.table-container > .admin-table th {
+  text-align: left;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* 逐列宽度: 表头行声明即列宽。
+   列序: 运行ID / 用户ID / 会话ID / 状态 / 目标 / 开始时间 / 操作
+   目标列(5)不设宽度 → 自动占满剩余空间 */
+.table-container > .admin-table th:nth-child(1) { width: 200px; }
+.table-container > .admin-table th:nth-child(2) { width: 78px; }
+.table-container > .admin-table th:nth-child(3) { width: 92px; }
+.table-container > .admin-table th:nth-child(4) { width: 100px; }
+.table-container > .admin-table th:nth-child(6) { width: 168px; }
+.table-container > .admin-table th:nth-child(7) { width: 116px; }
+
+/* 状态列 / 操作列的表头: 左内边距与徽章、按钮的内部留白对齐,
+   消除"表头文字"与"组件内文字"起点差 12px 的视觉错位 */
+.table-container > .admin-table th:nth-child(4),
+.table-container > .admin-table th:nth-child(7) {
+  padding-left: 28px;
+}
+
+/* 省略号三件套 —— 宽度由列宽控制, 这里只声明截断行为 */
+.table-container > .admin-table .ellipsis {
+  max-width: 100%;
+}
+
+/* 运行 ID: 等宽字体便于逐位比对(超长自动省略, 完整值在 title 里 hover 可见) */
+.table-container > .admin-table .run-id {
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+}
+
+@media (max-width: 1440px) {
+  .admin-table th,
+  .admin-table td {
+    padding: 12px 10px;
+  }
+
+  .table-container > .admin-table {
+    min-width: 960px;
+  }
+
+  /* 窄屏: 侧边栏收窄, 把横向空间还给内容区(表格已有横向滚动兜底) */
+  .admin-sidebar {
+    width: 210px;
+  }
+}
+
+@media (max-width: 1200px) {
+  .admin-sidebar {
+    width: 176px;
+  }
+
+  .sidebar-header {
+    padding: 16px;
+  }
+
+  .nav-item {
+    padding: 12px 16px;
+  }
+
+  .admin-main {
+    padding: 16px;
+  }
+}
+
 /* Agent Run 详情: 宽版弹窗 (轨迹表格需要横向空间) */
 .modal-content.modal-wide {
   max-width: 960px;
@@ -235,6 +346,8 @@
   border-radius: 12px;
   font-size: 12px;
   font-weight: 500;
+  white-space: nowrap;   /* 徽章是整体, 不允许折行("已完成"曾被挤成两行) */
+  line-height: 1.5;
 }
 
 .status-badge.normal {
@@ -290,6 +403,7 @@
   cursor: pointer;
   border: none;
   transition: all 0.3s;
+  white-space: nowrap;   /* 按钮文字不折行("查看详情"曾被挤成两行) */
 }
 
 .action-btn.edit {

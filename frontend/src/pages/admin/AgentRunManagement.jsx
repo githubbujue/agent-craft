@@ -217,7 +217,7 @@ export default function AgentRunManagement() {
             ) : (
               data.map((item) => (
                 <tr key={item.runId}>
-                  <td className="text-primary">{item.runId}</td>
+                  <td className="text-primary run-id" title={item.runId}>{item.runId}</td>
                   <td>{item.userId}</td>
                   <td className="ellipsis">{item.conversationId}</td>
                   <td>
