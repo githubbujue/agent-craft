@@ -172,19 +172,57 @@ class ChitChatAgent:
         """
         logger.info(f"[ChitChatAgent] Stream chitchat: {question[:50]}...")
 
+        full_response = ""
         try:
-            answer = self._generate_chitchat_response(question)
+            # 1. 读取会话记忆作为上下文（与同步链路一致, 含留痕）
+            conversation_history = ""
+            if conversation_id and tool_registry.has_tool("conversation_memory_read"):
+                _mt0 = time.time()
+                try:
+                    history = tool_registry.invoke_tool(
+                        "conversation_memory_read",
+                        {"conversation_id": conversation_id, "limit": 10}
+                    )
+                    messages = history.get("messages", [])
+                    publish_step("memory_read", {
+                        "message_count": len(messages) if messages else 0,
+                        "compressed": history.get("compressed", False),
+                    }, duration_ms=(time.time() - _mt0) * 1000)
+                    if messages:
+                        conversation_history = self._format_history(messages)
+                except Exception as e:
+                    logger.warning(f"[ChitChatAgent] Failed to read conversation memory: {e}")
 
-            for char in answer:
-                yield json.dumps({
-                    "type": "token",
-                    "content": char
-                })
+            # 2. 生成回复
+            _g0 = time.time()
+            rule_text = self._match_rule_response(question)
+            if rule_text is not None:
+                # 规则命中: 本来就没有生成过程, 整段一次下发（逐字回放是伪流式）
+                full_response = rule_text
+                yield json.dumps({"type": "token", "content": rule_text})
+            else:
+                # LLM 真流式: 边生成边下发, 首字延迟 = 首个 token 时间（而非整段生成时间）
+                for chunk in llm.generate_stream(
+                    self._build_chitchat_prompt(question, conversation_history),
+                    temperature=0.7, max_tokens=300
+                ):
+                    if not chunk:
+                        continue
+                    full_response += chunk
+                    yield json.dumps({"type": "token", "content": chunk})
+            gen_ms = (time.time() - _g0) * 1000
+            publish_step("answer_generated", {
+                "chain": "chitchat",
+                "answer_length": len(full_response),
+            }, duration_ms=gen_ms, input_text=question)
+
+            # 3. 写入会话记忆
+            self._save_to_memory(conversation_id, question, full_response)
 
             yield json.dumps({
                 "type": "end",
                 "content": {
-                    "answer": answer,
+                    "answer": full_response,
                     "sources": [],
                     "task_type": "chitchat"
                 }
@@ -198,9 +236,22 @@ class ChitChatAgent:
 
     def _generate_chitchat_response(self, question: str, conversation_history: str = "") -> str:
         """
-        生成闲聊回复
+        生成闲聊回复（同步链路）
 
-        简单场景走规则匹配（<1ms），需要理解能力的场景调LLM生成自然回复
+        规则命中 → 秒回固定话术；否则调LLM生成自然回复。
+        流式链路见 chat_stream（规则命中整段下发, 否则走 LLM 真流式）。
+        """
+        rule_text = self._match_rule_response(question)
+        if rule_text is not None:
+            return rule_text
+        return self._llm_chitchat(question, conversation_history)
+
+    def _match_rule_response(self, question: str) -> Optional[str]:
+        """规则匹配: 命中即秒回, 无需调用 LLM
+
+        只覆盖"答案与模型无关"的类别（问候/感谢/身份/时间）。
+        其余场景（你知道X吗、天气、笑话、情感……）一律返回 None,
+        交给 LLM 生成更自然的回复 —— 与改造前的分支语义一致。
         """
         lower_question = question.lower()
 
@@ -216,62 +267,33 @@ class ChitChatAgent:
         if any(kw in lower_question for kw in ["你叫什么", "你是谁", "你是什么", "你的名字", "你是机器人", "你是AI"]):
             return self.chitchat_prompts["identity"][0]
 
-        # 以下场景需要理解能力，调LLM生成自然回复
-
-        # "你知道X吗" 类 — 用LLM给出有内容的回复，而不是机械重定向
-        if any(kw in lower_question for kw in ["你知道", "你了解", "你认识", "听说过", "你听过"]):
-            return self._llm_chitchat(question, conversation_history)
-
-        # 天气类 — 用LLM给出更自然的回复
-        if any(kw in lower_question for kw in ["天气", "下雨", "晴天", "温度"]):
-            return self._llm_chitchat(question, conversation_history)
-
-        # 时间类
+        # 时间类 — 固定话术
         if any(kw in lower_question for kw in ["几点", "时间", "日期", "今天是"]):
             return self.chitchat_prompts["time"][0]
 
-        # 笑话类 — 用LLM讲笑话，比预设的更有趣
-        if any(kw in lower_question for kw in ["笑话", "讲个笑话", "笑", "搞笑"]):
-            return self._llm_chitchat(question, conversation_history)
+        return None
 
-        # 日常闲聊类 — 用LLM自然回复
-        if any(kw in lower_question for kw in ["在干嘛", "在做什么", "忙吗", "累不累", "无聊", "睡不着"]):
-            return self._llm_chitchat(question, conversation_history)
-
-        # 引导类 — 用LLM自然回复
-        if any(kw in lower_question for kw in ["聊聊", "聊天", "陪我", "有空吗", "最近怎么样", "最近好吗"]):
-            return self._llm_chitchat(question, conversation_history)
-
-        # 情感类 — 用LLM给出有共情的回复
-        if any(kw in lower_question for kw in ["开心", "高兴", "难过", "伤心", "郁闷", "烦", "累", "困", "饿"]):
-            return self._llm_chitchat(question, conversation_history)
-
-        # 确认/反问类
-        if any(kw in lower_question for kw in ["可以吗", "行吗", "好吗", "对不对", "是不是", "会不会"]):
-            return self._llm_chitchat(question, conversation_history)
-
-        # 其他所有闲聊 — 调LLM生成自然回复
-        return self._llm_chitchat(question, conversation_history)
-
-    def _llm_chitchat(self, question: str, conversation_history: str = "") -> str:
-        """调用LLM生成自然的闲聊回复"""
-        try:
-            # 构建上下文
-            context_section = ""
-            if conversation_history:
-                context_section = f"""
+    def _build_chitchat_prompt(self, question: str, conversation_history: str = "") -> str:
+        """构建闲聊 prompt —— 同步与流式链路共用, 避免两份提示词各写一遍后走样"""
+        context_section = ""
+        if conversation_history:
+            context_section = f"""
 对话历史：
 {conversation_history}
 
 请基于对话历史，理解上下文后回复用户。"""
 
-            prompt = f"""你是一个友好、健谈的AI助手。请用自然、亲切的方式回复用户，就像朋友之间聊天一样。
+        return f"""你是一个友好、健谈的AI助手。请用自然、亲切的方式回复用户，就像朋友之间聊天一样。
 回复要简短有趣，100字以内。不要说"你可以问我知识类问题"这种话。
 {context_section}
 
 用户说：{question}"""
 
-            response = llm.generate(prompt, temperature=0.7, max_tokens=150)
+    def _llm_chitchat(self, question: str, conversation_history: str = "") -> str:
+        """调用LLM生成自然的闲聊回复（同步, 阻塞式）"""
+        try:
+            response = llm.generate(self._build_chitchat_prompt(question, conversation_history),
+                                    temperature=0.7, max_tokens=150)
             return response.strip()
         except:
             return self.chitchat_prompts["default"][0]

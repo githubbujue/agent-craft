@@ -337,7 +337,7 @@ class LLMService:
         try:
             # 使用简单的 prompt
             simple_prompt = PromptTemplate.from_template("{input}")
-            chain = simple_prompt | self.llm | StrOutputParser()
+            chain = simple_prompt | self.llm.bind(temperature=temperature, max_tokens=max_tokens) | StrOutputParser()
             
             result = chain.invoke({"input": prompt})
             
@@ -346,6 +346,87 @@ class LLMService:
         except Exception as e:
             config.logger.error(f"LLM generate Error: {e}")
             return "抱歉，我暂时无法回答这个问题。"
+
+    def generate_stream(self, prompt: str, temperature: float = 0.7,
+                        max_tokens: int = 150,
+                        fallback_text: str = "抱歉，我暂时无法回答这个问题。") -> Generator[str, None, None]:
+        """流式文本生成（闲聊等"直接给 prompt 生成"的场景）
+
+        与 get_answer_stream 的区别:
+        - get_answer_stream: 走知识库问答模板, 输出的是 JSON 事件字符串（token/end）
+        - generate_stream : 输出的是**纯文本增量**, 由调用方决定怎么包装成事件
+
+        为什么需要它: 原闲聊链路是"先 llm.generate() 整段算完 → 再 for char in answer
+        逐字 yield"——用户实际要等完整生成时间才看到第一个字, 逐字只是回放。
+        换成 chain.stream() 后, 首字延迟从"整段生成时间"降到"首个 token 时间"。
+        """
+        import time
+        start_time = time.time()
+
+        if not self.llm:
+            config.logger.info(f"LLM generate_stream completed in {time.time() - start_time:.4f}s (no API key)")
+            if fallback_text:
+                yield fallback_text
+            return
+
+        try:
+            simple_prompt = PromptTemplate.from_template("{input}")
+            # enable_thinking=False: 本模型是"思考+输出"共享 max_tokens 预算的推理模型。
+            # 思考开启时: 首 token 延迟翻倍(实测 2.4s→1.3s), 且思考越长可见输出越早被截断
+            # （历史 bug: 报告解读随机在半句话处断掉）。闲聊/解读这类短任务无需思考。
+            chain = (
+                simple_prompt
+                | self.llm.bind(temperature=temperature, max_tokens=max_tokens,
+                                extra_body={"enable_thinking": False})
+                | StrOutputParser()
+            )
+            first_token_at = None
+            for chunk in chain.stream({"input": prompt}):
+                if not chunk:
+                    continue
+                if first_token_at is None:
+                    first_token_at = time.time() - start_time
+                yield chunk
+            config.logger.info(
+                f"LLM generate_stream completed in {time.time() - start_time:.4f}s "
+                f"(首 token {first_token_at:.4f}s)" if first_token_at is not None
+                else f"LLM generate_stream completed in {time.time() - start_time:.4f}s (无 token)")
+        except Exception as e:
+            # fallback_text 为空字符串表示"调用方自己兜底": 例如报告解读场景,
+            # 报告数据已先行下发, 这里静默跳过即可, 不应把错误话术拼进报告
+            config.logger.error(f"LLM generate_stream Error: {e}")
+            if fallback_text:
+                yield fallback_text
+
+    def generate_report_insight_stream(self, report_text: str,
+                                       report_label: str) -> Generator[str, None, None]:
+        """把结构化报告交给 LLM 做运营解读（核心结论/风险/行动建议）, 真流式返回
+
+        供运营报告与管理助手各报告共用（提示词单一事实来源, 避免多处拷贝走样）。
+
+        设计原则: LLM 只做"解读层"、不替代数据 —— 报告数字必须来自数据库,
+        prompt 明确禁止编造数字, 避免指标幻觉。
+        LLM 不可用或调用失败时静默返回, 调用方自动回退为纯报告。
+        """
+        if not report_text or not self.llm:
+            return
+
+        prompt = f"""你是资深运营分析师。下面是一份系统自动生成的《{report_label}》数据报告。
+请**只依据报告中的真实数据**（不要编造任何数字或指标）给出运营解读：
+
+1. **核心结论**：2-3 条，每条一句话，说明数据反映了什么问题
+2. **风险与异常**：需要关注的数据或趋势（包括数据之间互相矛盾的地方）
+3. **行动建议**：2-3 条具体、可执行的建议
+
+格式要求：Markdown 小标题分节，总字数 350 字以内，不要重复罗列原始数据。
+
+数据报告：
+{report_text[:3000]}"""
+
+        yield "\n\n## 🤖 智能解读\n\n"
+        # fallback_text="" —— 失败静默跳过: 数据已先行下发, 不把错误话术拼进报告
+        yield from self.generate_stream(prompt, temperature=0.3, max_tokens=800,
+                                        fallback_text="")
 
 
 # 创建单例实例

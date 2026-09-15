@@ -7,7 +7,9 @@ import com.demo.aiknowledge.entity.AdminConversation;
 import com.demo.aiknowledge.entity.AdminMessage;
 import com.demo.aiknowledge.service.AdminChatService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.HashMap;
 import java.util.List;
@@ -42,6 +44,22 @@ public class AdminChatController {
         Long adminId = SecurityUtils.getCurrentUserId();
         String content = request.get("content");
         return Result.success(adminChatService.sendMessage(adminId, conversationId, content));
+    }
+
+    /**
+     * 流式问答（SSE）—— 与用户端 /api/chat/stream 事件契约完全一致,
+     * 末尾追加 saved 事件（携带落库后的 messageId）。
+     *
+     * <p>为什么用 POST 而非 EventSource: EventSource 仅支持 GET 且无法携带
+     * Authorization 头 —— 前端用 fetch + ReadableStream 读取本端点。
+     */
+    @PostMapping(value = "/messages/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamMessage(@RequestBody Map<String, Object> request) {
+        // 身份取自 JWT（不信任前端传参, 与同步链路一致）
+        Long adminId = SecurityUtils.getCurrentUserId();
+        Long conversationId = Long.valueOf(String.valueOf(request.get("conversationId")));
+        String content = String.valueOf(request.get("content"));
+        return adminChatService.streamAnswer(adminId, conversationId, content);
     }
 
     @GetMapping("/messages")

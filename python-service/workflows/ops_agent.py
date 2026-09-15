@@ -1,5 +1,7 @@
 from typing import Dict, Any, Optional, Generator, List
 from core.mysql_client import mysql_client
+from core.stream_utils import split_text_chunks
+from core.llm import llm
 import logging
 import json
 
@@ -77,7 +79,14 @@ class OpsAgent:
             }
 
     def analyze_stream(self, analysis_type: str = "full_report", **kwargs) -> Generator[str, None, None]:
-        """流式执行运营分析"""
+        """流式执行运营分析
+
+        注意: 分析结果由数据库查询拼装（本链路无 LLM 调用）, 因此按段落分块
+        下发已算好的报告, 而不是逐字回放。
+
+        修复说明: 旧实现只发 analysis_* 事件、从不发 token/end, 管理端
+        （admin_copilot → analyze_stream）因此收到"空回答", 气泡显示为未生成内容。
+        """
         logger.info(f"[OpsAgent] Starting streaming analysis: {analysis_type}")
 
         try:
@@ -89,11 +98,50 @@ class OpsAgent:
             yield json.dumps({"type": "analysis_progress", "step": "knowledge_gap_identification", "status": "completed"})
             yield json.dumps({"type": "analysis_progress", "step": "suggestion_generation", "status": "completed"})
 
-            yield json.dumps({"type": "analysis_completed", "result": result})
+            answer = (result or {}).get("answer", "") or ""
+
+            # ① 先下发结构化报告（数据库查询结果, 毫秒级可得 —— 数据先行, 用户立刻看到内容）
+            for chunk in split_text_chunks(answer):
+                yield json.dumps({"type": "token", "content": chunk}, default=str)
+
+            # default=str: 分析结果来自数据库查询, 含 date/datetime/Decimal 等
+            # 非 JSON 原生类型 —— 直接 dumps 会抛 TypeError, 导致整条流中断
+            # （历史 bug: 旧实现因此连 end 事件都发不出来, 管理端收到"空回答"）
+            yield json.dumps({"type": "analysis_completed", "result": result}, default=str)
+
+            # ② 再把报告数据交给 LLM 做"解读层"（结论/风险/建议）, 真流式逐 token 到达。
+            #    设计取舍: LLM 只做解读、不替代报告 —— 数据已先行下发,
+            #    因此 LLM 不可用时只是少一段分析, 报告本身依然完整。
+            insight = ""
+            for chunk in self._stream_llm_insight(analysis_type, answer):
+                insight += chunk
+                yield json.dumps({"type": "token", "content": chunk}, default=str)
+
+            final_answer = answer + insight if insight else answer
+            # 与其它链路统一: 用 end 事件收尾, 前端/Java 侧以 end 落库（含 LLM 解读, 刷新后不丢）
+            yield json.dumps({
+                "type": "end",
+                "content": {
+                    "answer": final_answer,
+                    "sources": (result or {}).get("sources", []) or [],
+                    "task_type": "admin_copilot",
+                },
+            }, default=str)
 
         except Exception as e:
             logger.error(f"[OpsAgent] Stream analysis failed: {e}", exc_info=True)
-            yield json.dumps({"type": "error", "error": str(e)})
+            yield json.dumps({"type": "error", "error": str(e), "content": f"运营分析失败：{e}"})
+
+    def _stream_llm_insight(self, analysis_type: str, report_text: str) -> Generator[str, None, None]:
+        """把结构化报告交给 LLM 做运营解读（真流式）
+
+        提示词收敛在 LLM 层（generate_report_insight_stream）共用,
+        管理助手各报告走同一套解读规则。
+        """
+        if not report_text:
+            return
+        label = self.analysis_types.get(analysis_type, analysis_type)
+        yield from llm.generate_report_insight_stream(report_text, label)
 
     def _analyze_knowledge_gap(self) -> Dict[str, Any]:
         """分析知识缺口 - P4-3核心功能"""
@@ -226,21 +274,23 @@ class OpsAgent:
         logger.info("[OpsAgent] Analyzing user activity")
 
         # 查询活跃用户
+        # 注意: 列名是 user_id（qa_log 实际结构）, 旧代码写成 userId → SQL 报错
+        # → mysql_client 吞掉异常返回空列表 → "活跃用户" 永远为空
         user_query = """
-            SELECT 
-                userId as user_id,
+            SELECT
+                user_id,
                 COUNT(*) as qa_count,
                 MAX(create_time) as last_active
             FROM qa_log
             WHERE create_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-            GROUP BY userId
+            GROUP BY user_id
             ORDER BY qa_count DESC
             LIMIT 20
         """
         active_users = mysql_client.fetch_all(user_query) or []
 
-        # 查询总用户
-        user_count_query = "SELECT COUNT(*) as user_count FROM users"
+        # 查询总用户: 表名是 user（旧代码写成 users → 表不存在 → 总用户恒为 0）
+        user_count_query = "SELECT COUNT(*) as user_count FROM user"
         user_count = mysql_client.fetch_one(user_count_query) or {}
 
         answer = f"""👥 用户活跃度分析
@@ -295,12 +345,12 @@ class OpsAgent:
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 
 2️⃣ 问答趋势分析
-{trend_result.get('answer', '').split('━━━━━━━━━━━━━━━━━━━━━━━━━')[1]}
+{trend_result.get('answer', '').split('━━━━━━━━━━━━━━━━━━━━━━━━━', 1)[1]}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 
 3️⃣ 用户活跃度分析
-{activity_result.get('answer', '').split('━━━━━━━━━━━━━━━━━━━━━━━━━')[1]}
+{activity_result.get('answer', '').split('━━━━━━━━━━━━━━━━━━━━━━━━━', 1)[1]}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -499,16 +549,18 @@ class OpsAgent:
         days = 7 if period == "week" else 30
 
         success_query = f"""
-            SELECT 
+            SELECT
                 DATE(start_time) as log_date,
-                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as success_count,
-                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_count,
+                SUM(CASE WHEN UPPER(status) = 'COMPLETED' THEN 1 ELSE 0 END) as success_count,
+                SUM(CASE WHEN UPPER(status) = 'FAILED' THEN 1 ELSE 0 END) as failed_count,
                 COUNT(*) as total_count
             FROM agent_run
             WHERE start_time >= DATE_SUB(NOW(), INTERVAL {days} DAY)
             GROUP BY DATE(start_time)
             ORDER BY log_date ASC
         """
+        # UPPER(): 留痕状态经历过大小写统一（早期小写 completed, 现为大写 COMPLETED）,
+        # 精确匹配小写会把历史记录全部漏掉 → 成功率恒为 0
         success_data = mysql_client.fetch_all(success_query) or []
 
         total_success = sum(d.get('success_count', 0) for d in success_data)
@@ -565,14 +617,17 @@ class OpsAgent:
         """分析工具调用失败排行"""
         logger.info("[OpsAgent] Analyzing tool call failures")
 
+        # 数据源说明: 旧代码查询的 tool_call 表在当前库中并不存在
+        # （SQL 报错被 mysql_client 吞掉 → 报告恒显示"0 个失败"）。
+        # 改为从 agent_step 统计失败步骤（含工具调用环节）, 数据真实可得。
         failure_query = """
-            SELECT 
-                tool_name,
+            SELECT
+                step_name as tool_name,
                 COUNT(*) as failure_count,
-                GROUP_CONCAT(DISTINCT error_message ORDER BY timestamp DESC LIMIT 5) as recent_errors
-            FROM tool_call
-            WHERE status = 'failed'
-            GROUP BY tool_name
+                GROUP_CONCAT(DISTINCT LEFT(error_message, 80) SEPARATOR ' | ') as recent_errors
+            FROM agent_step
+            WHERE UPPER(status) = 'FAILED'
+            GROUP BY step_name
             ORDER BY failure_count DESC
             LIMIT 10
         """
@@ -588,7 +643,7 @@ class OpsAgent:
 
 【统计概览】
 
-  🔨 失败工具种类：{failed_tool_count} 个
+  🔨 失败环节种类：{failed_tool_count} 个
   ❌ 总失败次数：{total_failures} 次
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

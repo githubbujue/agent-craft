@@ -39,6 +39,78 @@ const adminChatAPI = {
     adminApi.get(`/conversations?adminId=${adminId}`),
   sendMessage: (adminId, conversationId, content) =>
     adminApi.post(`/messages?adminId=${adminId}&conversationId=${conversationId}`, { content }),
+  /**
+   * 流式问答（SSE）—— 与用户端 chatAPI.sendMessageStream 同一套事件契约:
+   *   routed {task_type} | token {content} | end {content} | sources {sources, task_type}
+   *   | error {content} | saved {messageId}
+   *
+   * 为什么用 fetch + ReadableStream: EventSource 只支持 GET 且无法携带 Authorization 头,
+   * 本接口是 POST + JWT 鉴权（与用户端同一取舍）。
+   *
+   * @param data     {conversationId, content}
+   * @param handlers {onEvent(evt), onError(err), onComplete()}
+   * @param options  {signal} AbortController 信号 —— 支持"停止生成"
+   */
+  sendMessageStream: async (data, handlers = {}, options = {}) => {
+    const { onEvent, onError, onComplete } = handlers;
+    try {
+      const token = localStorage.getItem('adminToken');
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch('/api/admin-chat/messages/stream', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(data),
+        signal: options.signal,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText || '请求失败'}`);
+      }
+      if (!response.body) {
+        throw new Error('当前浏览器不支持流式读取');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+
+      // SSE 以空行分隔事件: 逐块读取、按 "\n\n" 切分、解析 data: 行
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split('\n\n');
+        buffer = chunks.pop() || ''; // 末尾可能是不完整事件, 留到下一轮
+
+        for (const chunk of chunks) {
+          const dataLine = chunk.split('\n').find(l => l.startsWith('data:'));
+          if (!dataLine) continue;
+          const jsonStr = dataLine.slice(5).trim();
+          if (!jsonStr) continue;
+          try {
+            if (onEvent) onEvent(JSON.parse(jsonStr));
+          } catch (error) {
+            console.error('SSE 事件解析失败:', error, jsonStr);
+          }
+        }
+      }
+      if (onComplete) onComplete();
+    } catch (error) {
+      // 用户主动停止（abort）不是错误, 按正常结束处理
+      if (error.name === 'AbortError') {
+        if (onComplete) onComplete();
+        return;
+      }
+      console.error('管理端流式请求失败:', error);
+      if (onError) onError(error);
+    }
+  },
   getMessages: (conversationId) =>
     adminApi.get(`/messages?conversationId=${conversationId}`),
   deleteConversation: (id) => adminApi.delete(`/conversations/${id}`),
@@ -330,62 +402,118 @@ export default function AdminChat() {
     setAbortController(controller);
 
     try {
-      const response = await adminChatAPI.sendMessage(adminId, currentConversation.id, inputMessage);
-
-      if (abortedRequests.has(requestId)) {
-        console.log('Request was aborted, skipping response processing');
-        return;
-      }
-
-      setProcessingStep('generating');
-
-      const aiMessage = {
-        id: response.data.data.id || thinkingMessageId,
-        conversationId: currentConversation.id,
-        role: 'assistant',
-        content: response.data.data.content,
-        sources: response.data.data.sources,
-        feedbackType: response.data.data.feedbackType || null,
-        taskType: response.data.data.taskType || null,
-        createTime: response.data.data.createTime || new Date().toISOString()
-      };
-
-      setMessages(prev => prev.map(msg => msg.id === thinkingMessageId ? aiMessage : msg));
-      setLoading(false);
-      setProcessingStep(null);
-      setAbortController(null);
-
-      loadConversations();
-
+      // 流式接收: 逐 token 更新最后一条 assistant 消息（先挂临时 id, 落库后替换为真实 id）
+      let liveMessageId = thinkingMessageId;
+      // 已接收的正文（用于判断"是否已经出现可见内容"）
+      let streamedText = '';
+      await adminChatAPI.sendMessageStream(
+        { conversationId: currentConversation.id, content: inputMessage },
+        {
+          onEvent: (evt) => {
+            if (abortedRequests.has(requestId)) return;
+            switch (evt.type) {
+              case 'routed':
+                // 路由确定 → "思考中" 切 "生成中"
+                setProcessingStep('generating');
+                if (evt.task_type) setCurrentTaskType(evt.task_type);
+                break;
+              case 'token': {
+                const delta = evt.content || '';
+                // 空 token 不改变 UI：模型流开头常吐若干空块,
+                // 若此时就关闭思考动画, 会露出一段空白气泡
+                if (!delta) break;
+                streamedText += delta;
+                // 只有真正出现可见字符（非空白/换行）才隐藏思考动画, 保证动画无缝衔接到正文
+                if (streamedText.trim().length > 0) {
+                  setProcessingStep(null);
+                }
+                setMessages(prev => prev.map(m => m.id === liveMessageId
+                  ? { ...m, content: (m.content || '') + delta, isStreaming: true }
+                  : m));
+                break;
+              }
+              case 'end': {
+                // end 携带完整回答, 以其为准（比逐 token 拼接更可靠）。
+                // content 有两种形态: 字符串 或 对象 {answer, sources, task_type}（闲聊等链路）
+                const ec = evt.content;
+                const endText = typeof ec === 'string'
+                  ? ec
+                  : (ec && typeof ec === 'object' ? (ec.answer || '') : '');
+                if (endText && endText.trim().length > 0) {
+                  setProcessingStep(null);
+                  setMessages(prev => prev.map(m => m.id === liveMessageId
+                    ? {
+                        ...m,
+                        content: endText,
+                        taskType: (ec && typeof ec === 'object' && ec.task_type) || m.taskType
+                      }
+                    : m));
+                }
+                if (ec && typeof ec === 'object' && Array.isArray(ec.sources)) {
+                  setMessages(prev => prev.map(m => m.id === liveMessageId
+                    ? { ...m, sources: JSON.stringify(ec.sources) } : m));
+                }
+                break;
+              }
+              case 'sources':
+                setMessages(prev => prev.map(m => m.id === liveMessageId
+                  ? {
+                      ...m,
+                      sources: JSON.stringify(evt.sources || []),
+                      taskType: evt.task_type || m.taskType
+                    }
+                  : m));
+                break;
+              case 'saved':
+                // 后端已落库: 用真实 messageId 替换临时 id（反馈/点赞依赖真实 id）
+                if (evt.messageId) {
+                  setMessages(prev => prev.map(m => m.id === liveMessageId
+                    ? { ...m, id: evt.messageId } : m));
+                  liveMessageId = evt.messageId;
+                }
+                break;
+              case 'error':
+                setMessages(prev => prev.map(m => m.id === liveMessageId
+                  ? { ...m, content: evt.content || '抱歉，服务暂时不可用。' } : m));
+                break;
+              default:
+                break;
+            }
+          },
+          onComplete: () => {
+            // 流结束（正常结束 / 用户中止 都会走这里）: 统一收尾
+            setMessages(prev => prev.map(m => (m.id === liveMessageId || m.isStreaming)
+              ? {
+                  ...m,
+                  // 边界保护: 流结束了却没有任何内容时, 不留空白气泡
+                  content: (m.content && m.content.trim()) ? m.content : '（本次未生成内容，请重试）',
+                  isStreaming: false,
+                  processingStep: null
+                }
+              : m));
+            setLoading(false);
+            setProcessingStep(null);
+            setAbortController(null);
+            loadConversations();
+          },
+          onError: (err) => {
+            console.error('发送消息失败:', err);
+            setMessages(prev => prev.map(m => m.id === liveMessageId
+              ? { ...m, content: '抱歉，我暂时无法回答这个问题，请稍后再试。', isStreaming: false }
+              : m));
+            setLoading(false);
+            setProcessingStep(null);
+            setAbortController(null);
+          }
+        },
+        { signal: controller.signal }
+      );
     } catch (err) {
-      // 检查是否是取消请求
-      const isAborted = err.name === 'AbortError' || 
-                        err.message?.includes('cancel') || 
-                        err.message?.includes('abort') ||
-                        err.code === 'ERR_CANCELED';
-      
-      if (isAborted) {
-        console.log('Request was aborted by user');
-        const abortedMessage = {
-          id: thinkingMessageId,
-          conversationId: currentConversation.id,
-          role: 'assistant',
-          content: '已停止回答',
-          createTime: new Date().toISOString()
-        };
-        setMessages(prev => prev.map(msg => msg.id === thinkingMessageId ? abortedMessage : msg));
-        setAbortedRequests(prev => new Set(prev).add(requestId));
-      } else {
-        console.error('发送消息失败:', err);
-        const errorMessage = {
-          id: thinkingMessageId,
-          conversationId: currentConversation.id,
-          role: 'assistant',
-          content: '抱歉，我暂时无法回答这个问题，请稍后再试。',
-          createTime: new Date().toISOString()
-        };
-        setMessages(prev => prev.map(msg => msg.id === thinkingMessageId ? errorMessage : msg));
-      }
+      // 兜底（正常情况下错误已在 onError 中处理）
+      console.error('发送消息异常:', err);
+      setMessages(prev => prev.map(m => m.id === thinkingMessageId
+        ? { ...m, content: '抱歉，我暂时无法回答这个问题，请稍后再试。', isStreaming: false }
+        : m));
       setLoading(false);
       setProcessingStep(null);
       setAbortController(null);
@@ -442,9 +570,12 @@ export default function AdminChat() {
         );
         if (lastAssistantMessageIndex !== -1) {
           const updatedMessages = [...prev];
+          const target = updatedMessages[lastAssistantMessageIndex];
           updatedMessages[lastAssistantMessageIndex] = {
-            ...updatedMessages[lastAssistantMessageIndex],
-            content: '已停止回答',
+            ...target,
+            // 与后端策略一致: 已生成的内容保留（后端也会保存已生成部分）,
+            // 仅当一个字都还没生成时才显示"已停止回答"
+            content: target.content ? target.content + '\n\n（已停止生成）' : '已停止回答',
             isStreaming: false,
             processingStep: null
           };
@@ -459,8 +590,10 @@ export default function AdminChat() {
   };
 
   const getProcessingMessage = () => {
+    // 文案衔接: 发送后先"思考中"（意图分类阶段）, 路由确定后切"生成中",
+    // 直到出现第一个可见字符才隐藏动画 —— 中间不出现空白气泡
     const steps = {
-      understanding: { icon: '🧠', text: '正在理解您的问题...' },
+      understanding: { icon: '🤔', text: '正在思考...' },
       retrieving: { icon: '🔍', text: '正在检索知识库...' },
       generating: { icon: '✍️', text: '正在生成回答...' }
     };

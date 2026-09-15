@@ -333,17 +333,43 @@ public class AiServiceImpl implements AiService {
     @Override
     public void askStream(String question, String context, Long userId, Long conversationId,
                           Consumer<Map<String, Object>> onEvent) {
-        Map<String, Object> requestBody = buildAiRequestBody(question, context, userId, conversationId);
+        executeEventStream(buildAiRequestBody(question, context, userId, conversationId),
+                "[AI Stream]", onEvent);
+    }
+
+    @Override
+    public void askStreamForAdmin(String question, String context, Long adminId,
+                                  Consumer<Map<String, Object>> onEvent) {
+        // 与 askForAdmin（同步链路）请求体保持一致：is_admin=true + username=admin_<id>
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("question", question);
+        requestBody.put("context", context);
+        requestBody.put("is_admin", true);
+        requestBody.put("username", "admin_" + adminId);
+        // 透传管理员ID, 供 Python 侧执行留痕(agent_run.user_id)
+        if (adminId != null) {
+            requestBody.put("user_id", String.valueOf(adminId));
+        }
+        // 刻意不传 conversation_id（详见 AiService#askStreamForAdmin 注释）
+        executeEventStream(requestBody, "[Admin AI Stream]", onEvent);
+    }
+
+    /**
+     * 调用 Python /ask/stream 并逐事件回调 —— 用户端与管理端流式链路共用。
+     *
+     * <p>关键: 用 execute + ResponseExtractor 逐行读取, 读到一条事件立即回调。
+     * 不能用 postForEntity —— 它会等整个响应体读完才返回, 拿不到"边读边转发"的能力,
+     * 流式就退化成"等待完成后一次性返回"。
+     */
+    private void executeEventStream(Map<String, Object> requestBody, String tag,
+                                    Consumer<Map<String, Object>> onEvent) {
         String url = aiServiceUrl + "/ask/stream";
-        log.info(">>> [AI Stream] 调用 Python 流式接口: {}, 请求体: {}", url, requestBody);
+        log.info(">>> {} 调用 Python 流式接口: {}, 请求体: {}", tag, url, requestBody);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
 
-        // 关键: 用 execute + ResponseExtractor 逐行读取, 读到一条事件立即回调。
-        // 不能用 postForEntity —— 它会等整个响应体读完才返回, 拿不到"边读边转发"的能力,
-        // 流式就退化成"等待完成后一次性返回"。
         restTemplate.execute(url, HttpMethod.POST,
                 restTemplate.httpEntityCallback(entity, Map.class),
                 response -> {
@@ -365,7 +391,7 @@ public class AiServiceImpl implements AiService {
                                 onEvent.accept(event);
                             } catch (Exception parseEx) {
                                 // 单个事件解析失败不应中断整条流, 记日志跳过
-                                log.warn("[AI Stream] 事件解析失败已跳过: {}, 原因: {}", payload, parseEx.getMessage());
+                                log.warn("{} 事件解析失败已跳过: {}, 原因: {}", tag, payload, parseEx.getMessage());
                             }
                         }
                     }

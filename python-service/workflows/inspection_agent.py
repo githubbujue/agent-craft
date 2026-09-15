@@ -1,5 +1,7 @@
 from typing import Dict, Any, Optional, Generator, List
 from core.mysql_client import mysql_client
+from core.stream_utils import split_text_chunks
+from core.llm import llm
 import logging
 import json
 
@@ -88,16 +90,32 @@ class InspectionAgent:
                 "inspection_type": inspection_type
             })
 
-            for char in answer:
+            # ① 数据层: 巡检结果是数据库查询拼装的, 按段落分块先行下发
+            #   （不再 for char 逐字回放 —— 那是伪流式打字动画）
+            for chunk in split_text_chunks(answer):
                 yield json.dumps({
                     "type": "token",
-                    "content": char
+                    "content": chunk
                 })
 
+            # ② 解读层: 与运营报告/管理助手各报告一致 —— 报告数据交给 LLM
+            #    做结论/风险/建议（真流式）; LLM 只解读不生成数据, 失败静默跳过
+            insight = ""
+            for chunk in llm.generate_report_insight_stream(answer, "知识巡检"):
+                insight += chunk
+                yield json.dumps({
+                    "type": "token",
+                    "content": chunk
+                })
+
+            if insight:
+                result = {**result, "answer": answer + insight}
+
+            # default=str: 巡检结果含数据库查出的 date/datetime 等非 JSON 类型
             yield json.dumps({
                 "type": "end",
                 "content": result
-            })
+            }, default=str)
         except Exception as e:
             logger.error(f"[InspectionAgent] Stream error: {str(e)}")
             yield json.dumps({
@@ -108,14 +126,14 @@ class InspectionAgent:
     def _check_duplicate_docs(self) -> Dict[str, Any]:
         """检测重复文档"""
         try:
-            # 查询可能有重复的文档（相同标题或相似内容）
+            # 查询可能有重复的文档（相同标题）
+            # 表/列名以真实 schema 为准: knowledge_doc.doc_name
+            # （旧代码写 knowledge_docs/title/is_deleted/created_at → SQL 全部报错 → 恒显示"未发现"）
             query = """
-                SELECT d1.id as doc1_id, d1.title as doc1_title,
-                       d2.id as doc2_id, d2.title as doc2_title,
-                       d1.created_at
-                FROM knowledge_docs d1
-                JOIN knowledge_docs d2 ON d1.title = d2.title AND d1.id < d2.id
-                WHERE d1.is_deleted = 0 AND d2.is_deleted = 0
+                SELECT d1.id as doc1_id, d1.doc_name as doc1_title,
+                       d2.id as doc2_id, d2.doc_name as doc2_title
+                FROM knowledge_doc d1
+                JOIN knowledge_doc d2 ON d1.doc_name = d2.doc_name AND d1.id < d2.id
                 LIMIT 20
             """
             duplicates = mysql_client.fetch_all(query) or []
@@ -173,11 +191,11 @@ class InspectionAgent:
         """检测低质量知识片段"""
         try:
             # 查询可能低质量的片段（内容过短或过长）
+            # 真实列名: knowledge_chunk.chunk_text（旧代码写 content + 不存在的 is_deleted）
             query = """
-                SELECT id, doc_id, content, LENGTH(content) as content_length
-                FROM knowledge_chunks
-                WHERE is_deleted = 0
-                  AND (LENGTH(content) < 50 OR LENGTH(content) > 5000)
+                SELECT id, doc_id, chunk_text, LENGTH(chunk_text) as content_length
+                FROM knowledge_chunk
+                WHERE LENGTH(chunk_text) < 50 OR LENGTH(chunk_text) > 5000
                 ORDER BY content_length ASC
                 LIMIT 20
             """
@@ -245,19 +263,21 @@ class InspectionAgent:
         """检测过期知识"""
         try:
             # 查询30天以上未更新的文档
+            # 注意: knowledge_doc 表只有 create_time, 没有 update_time 列 ——
+            # 旧代码查 updated_at（列不存在 → 恒报错 → 恒显示"未发现过期"）。
+            # 这里以创建时间近似, 并在文案中如实说明口径。
             query = """
-                SELECT id, title, updated_at, created_at
-                FROM knowledge_docs
-                WHERE is_deleted = 0
-                  AND updated_at < DATE_SUB(NOW(), INTERVAL 30 DAY)
-                ORDER BY updated_at ASC
+                SELECT id, doc_name as title, create_time
+                FROM knowledge_doc
+                WHERE create_time < DATE_SUB(NOW(), INTERVAL 30 DAY)
+                ORDER BY create_time ASC
                 LIMIT 20
             """
             stale_docs = mysql_client.fetch_all(query) or []
 
             if not stale_docs:
                 return {
-                    "answer": "✅ 过期知识检测完成\n\n所有文档都在30天内更新过，知识库内容较为新鲜。",
+                    "answer": "✅ 过期知识检测完成\n\n所有文档都是30天内创建的，知识库内容较为新鲜。",
                     "sources": [],
                     "has_sources": False,
                     "task_type": "knowledge_inspection",
@@ -270,14 +290,14 @@ class InspectionAgent:
                 doc_list.append({
                     "doc_id": doc.get("id"),
                     "title": doc.get("title"),
-                    "updated_at": str(doc.get("updated_at")),
+                    "updated_at": str(doc.get("create_time")),
                 })
 
-            answer = f"""⚠️ 发现 {len(stale_docs)} 个可能过期的知识文档（30天以上未更新）：
+            answer = f"""⚠️ 发现 {len(stale_docs)} 个 30 天前创建的文档（系统未记录文档更新时间，以创建时间近似）：
 
 """
             for i, doc in enumerate(doc_list[:5], 1):
-                answer += f"{i}. 《{doc['title']}》 - 最后更新：{doc['updated_at']}\n"
+                answer += f"{i}. 《{doc['title']}》 - 创建于：{doc['updated_at']}\n"
 
             if len(doc_list) > 5:
                 answer += f"\n... 还有 {len(doc_list) - 5} 个文档未显示"
@@ -306,22 +326,35 @@ class InspectionAgent:
     def _check_unpopular_docs(self) -> Dict[str, Any]:
         """检测无人访问的文档"""
         try:
-            # 查询从创建至今没有被访问过的文档
-            query = """
-                SELECT d.id, d.title, d.created_at,
-                       (SELECT COUNT(*) FROM doc_view_logs WHERE doc_id = d.id) as view_count
-                FROM knowledge_docs d
-                WHERE d.is_deleted = 0
-                  AND d.created_at < DATE_SUB(NOW(), INTERVAL 7 DAY)
-                HAVING view_count = 0
-                ORDER BY d.created_at ASC
-                LIMIT 20
-            """
-            unpopular = mysql_client.fetch_all(query) or []
+            # 数据源说明: 旧代码查询的 doc_view_logs 表并不存在
+            # （SQL 恒报错 → 恒显示"所有文档都有访问记录"的假结论）。
+            # 改用真实可得的代理指标: 以"回答中引用过该文档"计为被使用 ——
+            # 从 message.sources（JSON 数组, 含 doc_id）统计每篇文档的引用次数。
+            docs = mysql_client.fetch_all(
+                "SELECT id, doc_name as title, create_time FROM knowledge_doc "
+                "WHERE create_time < DATE_SUB(NOW(), INTERVAL 7 DAY)"
+            ) or []
+            cited_rows = mysql_client.fetch_all(
+                "SELECT sources FROM message WHERE sources IS NOT NULL AND sources != ''"
+            ) or []
+
+            cite_count = {}
+            for row in cited_rows:
+                try:
+                    arr = json.loads(row.get("sources") or "[]")
+                    if isinstance(arr, list):
+                        for s in arr:
+                            did = (s or {}).get("doc_id")
+                            if did is not None:
+                                cite_count[did] = cite_count.get(did, 0) + 1
+                except Exception:
+                    continue  # 单条 sources 解析失败不影响整体统计
+
+            unpopular = [d for d in docs if d.get("id") not in cite_count]
 
             if not unpopular:
                 return {
-                    "answer": "✅ 无人访问文档检测完成\n\n所有文档在近7天内都有访问记录，知识库使用率良好。",
+                    "answer": "✅ 冷门文档检测完成\n\n所有文档都至少被回答引用过一次，知识库使用率良好。",
                     "sources": [],
                     "has_sources": False,
                     "task_type": "knowledge_inspection",
@@ -334,11 +367,11 @@ class InspectionAgent:
                 doc_list.append({
                     "doc_id": doc.get("id"),
                     "title": doc.get("title"),
-                    "created_at": str(doc.get("created_at")),
-                    "view_count": doc.get("view_count", 0),
+                    "created_at": str(doc.get("create_time")),
+                    "view_count": 0,
                 })
 
-            answer = f"""⚠️ 发现 {len(unpopular)} 个近7天无人访问的文档：
+            answer = f"""⚠️ 发现 {len(unpopular)} 个从未被回答引用过的文档（以"回答引用"作为使用代理指标）：
 
 """
             for i, doc in enumerate(doc_list[:5], 1):

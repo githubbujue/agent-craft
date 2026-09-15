@@ -100,13 +100,39 @@ public class ChatStreamServiceImpl implements ChatStreamService {
 
                 // ---- 1) 累积: 供流结束后落库 / 断线保存 ----
                 switch (type) {
+                    case "routed":
+                        // 记录路由结果: 部分链路(如闲聊)不发 sources 事件,
+                        // 若只靠 sources 取 task_type, 落库会一直是默认值"unknown"
+                        if (event.get("task_type") != null) {
+                            taskTypeRef.set(String.valueOf(event.get("task_type")));
+                        }
+                        break;
                     case "token":
                         answerBuffer.append(event.getOrDefault("content", ""));
                         break;
                     case "end":
-                        // end 事件携带完整回答, 以其为准（比逐 token 拼接更可靠）
+                        // end 事件携带完整回答, 以其为准（比逐 token 拼接更可靠）。
+                        // 注意 content 有两种形态: 字符串(多数链路) 或 对象
+                        // {answer, sources, task_type}(闲聊等链路)—— 直接当字符串拼接会把
+                        // Map.toString() 落库（历史 bug: 库里存成 "{answer=..., sources=[]}"）
                         answerBuffer.setLength(0);
-                        answerBuffer.append(event.getOrDefault("content", ""));
+                        Object endContent = event.get("content");
+                        if (endContent instanceof java.util.Map<?, ?> endMap) {
+                            Object endAnswer = endMap.get("answer");
+                            answerBuffer.append(endAnswer == null ? "" : String.valueOf(endAnswer));
+                            if (endMap.get("sources") != null) {
+                                try {
+                                    sourcesJsonRef.set(objectMapper.writeValueAsString(endMap.get("sources")));
+                                } catch (Exception e) {
+                                    log.warn("序列化 end.sources 失败: {}", e.getMessage());
+                                }
+                            }
+                            if (endMap.get("task_type") != null) {
+                                taskTypeRef.set(String.valueOf(endMap.get("task_type")));
+                            }
+                        } else if (endContent != null) {
+                            answerBuffer.append(endContent);
+                        }
                         break;
                     case "sources":
                         try {

@@ -316,6 +316,8 @@ export default function Chat() {
 
       // 流式接收: 逐 token 实时更新最后一条 assistant 消息（先挂临时 id, 落库后替换为真实 id）
       let liveMessageId = thinkingMessageId;
+      // 已接收的正文（用于判断"是否已经出现可见内容"）
+      let streamedText = '';
       await chatAPI.sendMessageStream(
         {
           userId,
@@ -331,20 +333,44 @@ export default function Chat() {
                 setProcessingStep('generating');
                 if (evt.task_type) setCurrentTaskType(evt.task_type);
                 break;
-              case 'token':
-                // 首个 token 到达即隐藏思考动画, 开始实时渲染（Markdown 渐进渲染）
-                setProcessingStep(null);
+              case 'token': {
+                const delta = evt.content || '';
+                // 空 token 不改变 UI：模型流开头常吐若干空块,
+                // 若此时就关闭思考动画, 会露出一段空白气泡
+                if (!delta) break;
+                streamedText += delta;
+                // 只有真正出现可见字符（非空白/换行）才隐藏思考动画, 保证动画无缝衔接到正文
+                if (streamedText.trim().length > 0) {
+                  setProcessingStep(null);
+                }
                 setMessages(prev => prev.map(m => m.id === liveMessageId
-                  ? { ...m, content: (m.content || '') + (evt.content || ''), isStreaming: true }
+                  ? { ...m, content: (m.content || '') + delta, isStreaming: true }
                   : m));
                 break;
-              case 'end':
-                // end 携带完整回答, 以其为准（比逐 token 拼接更可靠）
-                if (typeof evt.content === 'string') {
+              }
+              case 'end': {
+                // end 携带完整回答, 以其为准（比逐 token 拼接更可靠）。
+                // content 有两种形态: 字符串 或 对象 {answer, sources, task_type}（闲聊等链路）
+                const ec = evt.content;
+                const endText = typeof ec === 'string'
+                  ? ec
+                  : (ec && typeof ec === 'object' ? (ec.answer || '') : '');
+                if (endText && endText.trim().length > 0) {
+                  setProcessingStep(null);
                   setMessages(prev => prev.map(m => m.id === liveMessageId
-                    ? { ...m, content: evt.content } : m));
+                    ? {
+                        ...m,
+                        content: endText,
+                        taskType: (ec && typeof ec === 'object' && ec.task_type) || m.taskType
+                      }
+                    : m));
+                }
+                if (ec && typeof ec === 'object' && Array.isArray(ec.sources)) {
+                  setMessages(prev => prev.map(m => m.id === liveMessageId
+                    ? { ...m, sources: JSON.stringify(ec.sources) } : m));
                 }
                 break;
+              }
               case 'sources':
                 setMessages(prev => prev.map(m => m.id === liveMessageId
                   ? {
@@ -373,7 +399,13 @@ export default function Chat() {
           onComplete: () => {
             // 流结束（正常结束 / 用户中止 都会走这里）: 统一收尾
             setMessages(prev => prev.map(m => (m.id === liveMessageId || m.isStreaming)
-              ? { ...m, isStreaming: false, processingStep: null }
+              ? {
+                  ...m,
+                  // 边界保护: 流结束了却没有任何内容时, 不留空白气泡
+                  content: (m.content && m.content.trim()) ? m.content : '（本次未生成内容，请重试）',
+                  isStreaming: false,
+                  processingStep: null
+                }
               : m));
             setLoading(false);
             setProcessingStep(null);
@@ -500,8 +532,10 @@ export default function Chat() {
   };
 
   const getProcessingMessage = () => {
+    // 文案衔接: 发送后先"思考中"（意图分类 + 检索阶段）, 路由确定后切"生成中",
+    // 直到出现第一个可见字符才隐藏动画 —— 中间不出现空白气泡
     const steps = {
-      understanding: { icon: '🧠', text: '正在理解您的问题...' },
+      understanding: { icon: '🤔', text: '正在思考...' },
       retrieving: { icon: '🔍', text: '正在检索知识库...' },
       generating: { icon: '✍️', text: '正在生成回答...' }
     };

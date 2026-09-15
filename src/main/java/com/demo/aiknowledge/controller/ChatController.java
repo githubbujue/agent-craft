@@ -11,10 +11,10 @@ import com.demo.aiknowledge.entity.Conversation;
 import com.demo.aiknowledge.entity.Message;
 import com.demo.aiknowledge.service.ChatService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -33,6 +33,10 @@ public class ChatController {
 
     private final ChatService chatService;
     private final ChatStreamService chatStreamService;
+
+    // 聊天临时图片存储目录（默认项目根目录下 uploads/temp，可用 UPLOAD_TEMP_DIR 覆盖）
+    @Value("${upload.temp-dir:./uploads/temp}")
+    private String tempDir;
 
     /**
      * 流式问答（SSE）
@@ -103,8 +107,7 @@ public class ChatController {
 
         // 保存到本地临时目录
         try {
-            String uploadDir = "D:/aiknowledge/temp";
-            File dir = new File(uploadDir);
+            File dir = new File(tempDir);
             if (!dir.exists()) {
                 dir.mkdirs();
             }
@@ -129,8 +132,7 @@ public class ChatController {
     @GetMapping("/view/image/{id}")
     public ResponseEntity<Resource> viewImage(@PathVariable String id) {
         try {
-            String uploadDir = "D:/aiknowledge/temp";
-            File dir = new File(uploadDir);
+            File dir = new File(tempDir);
             if (!dir.exists()) {
                 return ResponseEntity.notFound().build();
             }
@@ -174,8 +176,7 @@ public class ChatController {
     @PostMapping("/cleanup/temp")
     public Result<String> cleanupTemp() {
         try {
-            String uploadDir = "D:/aiknowledge/temp";
-            File dir = new File(uploadDir);
+            File dir = new File(tempDir);
             if (dir.exists()) {
                 File[] files = dir.listFiles();
                 if (files != null) {

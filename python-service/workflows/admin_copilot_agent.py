@@ -1,5 +1,7 @@
 from typing import Dict, Any, Optional, Generator
 from core.mysql_client import mysql_client
+from core.stream_utils import split_text_chunks
+from core.llm import llm
 from workflows.ops_agent import ops_agent
 import logging
 import json
@@ -77,37 +79,62 @@ class AdminCopilotAgent:
             result = self.handle(question, conversation_id, user_id, context, **kwargs)
             answer = result.get("answer", "")
 
-            for char in answer:
-                yield json.dumps({"type": "token", "content": char})
+            # ① 数据层: 报告由数据库查询拼装, 按段落分块先行下发（毫秒级可得,
+            #    而不是 for char 逐字回放那种伪流式打字动画）
+            for chunk in split_text_chunks(answer):
+                yield json.dumps({"type": "token", "content": chunk})
 
-            yield json.dumps({"type": "end", "content": result})
+            # ② 解读层: 与运营报告一致 —— 把报告数据交给 LLM 做结论/风险/建议（真流式）。
+            #    LLM 只解读、不生成数据（数字幻觉防护）; 失败时静默跳过, 报告不受影响
+            insight = ""
+            label = self.admin_operations.get(operation, "管理数据报告")
+            for chunk in llm.generate_report_insight_stream(answer, label):
+                insight += chunk
+                yield json.dumps({"type": "token", "content": chunk})
+
+            if insight:
+                result = {**result, "answer": answer + insight}
+
+            # default=str: result 含数据库查出的 date/datetime 等非 JSON 类型
+            yield json.dumps({"type": "end", "content": result}, default=str)
 
         except Exception as e:
             logger.error(f"[AdminCopilotAgent] Stream error: {e}", exc_info=True)
-            yield json.dumps({"type": "error", "error": str(e)})
+            yield json.dumps({"type": "error", "error": str(e), "content": f"处理管理请求时出错：{e}"})
 
     def _parse_operation(self, question: str) -> str:
-        """解析操作类型"""
+        """解析操作类型
+
+        关键词按"具体 → 宽泛"排序: 宽泛词（如"分析"）必须放在最后,
+        否则会截胡更具体的意图（历史 bug: "Agent成功率分析"含"分析"
+        → 先命中 stats, 成功率报告永远出不来）。
+        """
         lower_question = question.lower()
 
-        if any(kw in lower_question for kw in ["知识缺口", "缺口", "未命中", "知识缺口分析"]):
+        # ---- 具体意图优先 ----
+        if any(kw in lower_question for kw in ["成功率", "失败率", "agent成功", "运行成功"]):
+            return "agent_success_rate"
+        if any(kw in lower_question for kw in ["工具调用", "工具失败", "工具错误", "工具排行"]):
+            return "tool_call_failures"
+        if any(kw in lower_question for kw in ["热门问题", "问题排行", "top问题", "常见问题"]):
+            return "hot_questions"
+        if any(kw in lower_question for kw in ["知识库增长", "文档增长", "增长趋势", "新增文档"]):
+            return "knowledge_growth"
+        if any(kw in lower_question for kw in ["知识缺口", "缺口", "未命中"]):
             return "knowledge_gap"
         if any(kw in lower_question for kw in ["运营报告", "完整报告", "全报告", "运营分析"]):
             return "full_ops_report"
         if any(kw in lower_question for kw in ["用户", "活跃度", "活跃用户"]):
             return "user_activity"
-        if any(kw in lower_question for kw in ["统计", "报表", "数据", "分析", "多少", "数量"]):
+        # ---- 数字统计类（在"知识/文档"之前: "有多少文档"应走统计而非巡检）----
+        if any(kw in lower_question for kw in ["统计", "报表", "数据", "多少", "数量"]):
             return "stats"
+        # ---- 巡检 ----
         if any(kw in lower_question for kw in ["知识", "文档", "巡检", "检查", "质量"]):
             return "knowledge_inspection"
-        if any(kw in lower_question for kw in ["热门问题", "问题排行", "top问题", "常见问题"]):
-            return "hot_questions"
-        if any(kw in lower_question for kw in ["知识库增长", "文档增长", "增长趋势", "新增文档"]):
-            return "knowledge_growth"
-        if any(kw in lower_question for kw in ["成功率", "失败率", "agent成功", "运行成功"]):
-            return "agent_success_rate"
-        if any(kw in lower_question for kw in ["工具调用", "工具失败", "工具错误", "工具排行"]):
-            return "tool_call_failures"
+        # ---- 最宽泛的兜底 ----
+        if any(kw in lower_question for kw in ["分析"]):
+            return "stats"
 
         return "stats"
 
