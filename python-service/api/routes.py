@@ -268,7 +268,8 @@ async def ask_question(request: ChatRequest):
         event_bus.publish(Event(
             event_type="run_started", run_id=run_id,
             data={
-                "goal": f"回答用户问题: {request.question[:50]}",
+                # 留痕可读性: 管理端(is_admin)走的是管理助手链路, 与用户端问答区分开
+                "goal": f"{'管理助手请求' if request.is_admin else '回答用户问题'}: {request.question[:50]}",
                 "input_data": request.question,
                 "conversation_id": request.conversation_id,
                 "user_id": request.user_id,
@@ -373,7 +374,8 @@ async def ask_question_stream(request: ChatRequest):
             event_bus.publish(Event(
                 event_type="run_started", run_id=run_id,
                 data={
-                    "goal": f"流式回答用户问题: {request.question[:50]}",
+                    # 留痕可读性: 管理端(is_admin)走的是管理助手链路, 与用户端问答区分开
+                    "goal": f"{'流式管理助手请求' if request.is_admin else '流式回答用户问题'}: {request.question[:50]}",
                     "input_data": request.question,
                     "conversation_id": request.conversation_id,
                     "user_id": request.user_id,
