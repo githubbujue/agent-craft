@@ -2,6 +2,7 @@ from typing import Dict, Any, Optional, List
 from core.llm import LLMService
 from core.vector_store import vector_store
 from core.retrieval_evaluator import evaluate_retrieval, evaluate_answer
+from core.faithfulness_judge import trigger_faithfulness_judge
 from tools.registry import tool_registry
 import logging
 import json
@@ -28,8 +29,10 @@ class ReasoningAgent:
 
             # Step 2：逐个子问题检索 + 推理
             reasoning_steps = []
+            all_docs = []  # 汇总各子问题命中的资料, 供答案生成后的后台忠实度评判
             for sub_q in sub_questions:
                 docs = self.vector_store.search(sub_q, k=3, similarity_threshold=0.45)
+                all_docs.extend(docs)
                 # 评估层：每个子问题单独评估检索充分性（缺料推理是编造高发区）
                 sufficiency = evaluate_retrieval(docs, sub_q, chain="L3")
                 sub_answer = self._reason_sub_question(sub_q, docs, context)
@@ -77,6 +80,9 @@ class ReasoningAgent:
                     )
                 except Exception as e:
                     logger.warning(f"[ReasoningAgent] Failed to write memory: {e}")
+
+            # 后台忠实度评判(非阻塞): L3 汇总答案同样要判"有没有编"
+            trigger_faithfulness_judge(question, final_answer, all_docs, chain="L3")
 
             return {
                 "answer": final_answer,

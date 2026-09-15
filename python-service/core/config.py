@@ -46,6 +46,13 @@ class ConfigManager:
         # Rerank Configuration
         self.RERANKER_TYPE = os.getenv("RERANKER_TYPE", "simple")
         self.COHERE_API_KEY = os.getenv("COHERE_API_KEY", "")
+
+        # Faithfulness Judge Configuration (LLM-as-judge 内容忠实度评估 —— 评估层第 3 层)
+        # 默认开启 + 全量采样(本地开发便于观察); 生产可调低采样率控制 token 成本
+        self.FAITHFULNESS_JUDGE_ENABLED = os.getenv(
+            "FAITHFULNESS_JUDGE_ENABLED", "true").lower() == "true"
+        self.FAITHFULNESS_JUDGE_SAMPLE_RATE = float(
+            os.getenv("FAITHFULNESS_JUDGE_SAMPLE_RATE", "1.0"))
         
         # Text Chunking Configuration
         self.CHUNK_STRATEGY = os.getenv("CHUNK_STRATEGY", "semantic")
@@ -96,6 +103,8 @@ class ConfigManager:
             "EMBEDDING_MODEL": self.EMBEDDING_MODEL,
             "LOCAL_EMBEDDING_MODEL": self.LOCAL_EMBEDDING_MODEL,
             "RERANKER_TYPE": self.RERANKER_TYPE,
+            "FAITHFULNESS_JUDGE_ENABLED": self.FAITHFULNESS_JUDGE_ENABLED,
+            "FAITHFULNESS_JUDGE_SAMPLE_RATE": self.FAITHFULNESS_JUDGE_SAMPLE_RATE,
             "CHUNK_STRATEGY": self.CHUNK_STRATEGY,
             "CHUNK_SIZE": self.CHUNK_SIZE,
             "CHUNK_OVERLAP": self.CHUNK_OVERLAP,

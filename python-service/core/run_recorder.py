@@ -38,6 +38,7 @@ _STEP_NAME = {
     "rerank_completed": "重排序",
     "sufficiency_evaluated": "结果评估",
     "answer_generated": "答案生成",
+    "faithfulness_evaluated": "忠实度评估",
     "memory_write": "记忆写入",
 }
 

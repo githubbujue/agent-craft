@@ -6,6 +6,7 @@ from workflows.retrieval_agent import RetrievalAgent
 from core.vector_store import vector_store
 from core.llm import LLMService
 from core.retrieval_evaluator import evaluate_retrieval, evaluate_answer, publish_step
+from core.faithfulness_judge import trigger_faithfulness_judge
 from tools.registry import tool_registry
 import logging
 import json
@@ -135,6 +136,8 @@ class KnowledgeQAAgent:
         # 先评估后写记忆 —— 保证轨迹时序: 答案生成 → 记忆写入
         answer_quality = evaluate_answer(question, answer, sources,
                                          chain="L1", gen_ms=gen_ms)
+        # 后台忠实度评判(非阻塞): 只派发 daemon 线程, 不影响响应耗时与轨迹时序
+        trigger_faithfulness_judge(question, answer, docs, chain="L1")
         self._save_to_memory(conversation_id, question, answer)
 
         return {
@@ -203,6 +206,8 @@ class KnowledgeQAAgent:
         # 先评估后写记忆 —— 保证轨迹时序: 答案生成 → 记忆写入
         answer_quality = evaluate_answer(question, answer, sources,
                                          chain="L2", gen_ms=gen_ms)
+        # 后台忠实度评判(非阻塞): 只派发 daemon 线程, 不影响响应耗时与轨迹时序
+        trigger_faithfulness_judge(question, answer, docs, chain="L2")
         self._save_to_memory(conversation_id, question, answer)
 
         return {
@@ -339,13 +344,18 @@ class KnowledgeQAAgent:
                     "chunk_index": metadata.get("chunk_index"),
                 })
 
-            # 3. 流式 LLM 生成
+            # 3. 流式 LLM 生成（累积全文 + 实测耗时, 供评估与留痕使用）
+            _g0 = time.time()
+            answer_parts = []
             for chunk in self.llm_service.get_answer_stream(
                 question=question,
                 context_docs=docs,
                 conversation_context=context
             ):
+                answer_parts.append(chunk)
                 yield chunk
+            answer = "".join(answer_parts)
+            gen_ms = (time.time() - _g0) * 1000
 
             # 4. 发送来源信息
             yield json.dumps({
@@ -353,6 +363,14 @@ class KnowledgeQAAgent:
                 "sources": sources,
                 "task_type": "knowledge_qa"
             })
+
+            # 4.5 答案质量评估留痕 —— 与 L1/L2 对齐(流式链路此前缺这一步,
+            #     导致轨迹里没有"答案生成"步骤)。gen_ms 传真实 LLM 耗时, 语义与同步链路一致。
+            #     时序: 答案生成 → 忠实度评估, 与同步链路一致
+            evaluate_answer(question, answer, sources, chain="STREAM", gen_ms=gen_ms)
+
+            # 5. 后台忠实度评判(非阻塞): 流已发完, 派发线程即返回, 不拖慢收尾
+            trigger_faithfulness_judge(question, answer, docs, chain="STREAM")
 
         except Exception as e:
             logger.error(f"[KnowledgeQAAgent] Stream QA failed: {e}", exc_info=True)

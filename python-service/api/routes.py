@@ -393,6 +393,12 @@ async def ask_question_stream(request: ChatRequest):
                 for char in answer:
                     yield f"data: {json.dumps({'type': 'token', 'content': char})}\n\n"
                 yield f"data: {json.dumps({'type': 'end', 'content': answer, 'task_type': 'chitchat'})}\n\n"
+                # 补 run_completed: 该分支此前直接 return, 会让 agent_run 永远停在 RUNNING
+                event_bus.publish(Event(
+                    event_type="run_completed", run_id=run_id,
+                    data={"output": answer, "task_type": "chitchat",
+                          "total_ms": time.time() - start_time},
+                ))
                 return
 
             # 使用 RouterAgent 进行流式任务路由
@@ -401,6 +407,8 @@ async def ask_question_stream(request: ChatRequest):
             # 原因: route_stream 内部是阻塞式网络 I/O（逐 token 读 LLM 流），
             # 直接在事件循环里迭代会把循环占满, uvicorn 无法及时把已产生的事件写回客户端,
             # 表现为"响应头很快返回, 但所有内容直到生成结束才一次性到达"（假流式）。
+            # 累积回答内容: 供 run.output 留痕(此前恒为空字符串, 管理端"输出"栏一直是空白)
+            answer_parts = []
             async for event_data in iterate_in_threadpool(
                 router_agent.route_stream(
                     input_text=request.question,
@@ -409,6 +417,20 @@ async def ask_question_stream(request: ChatRequest):
                     is_admin=request.is_admin
                 )
             ):
+                try:
+                    _evt = json.loads(event_data)
+                    _type = _evt.get("type")
+                    if _type == "token":
+                        answer_parts.append(_evt.get("content") or "")
+                    elif _type == "end":
+                        # end 携带完整回答(可能是字符串或 {answer, sources, task_type}), 以其为准
+                        _c = _evt.get("content")
+                        if isinstance(_c, str):
+                            answer_parts = [_c]
+                        elif isinstance(_c, dict) and _c.get("answer"):
+                            answer_parts = [str(_c["answer"])]
+                except Exception:
+                    pass  # 留痕解析失败不影响事件转发
                 yield f"data: {event_data}\n\n"
 
             process_time = time.time() - start_time
@@ -422,7 +444,7 @@ async def ask_question_stream(request: ChatRequest):
             )
             event_bus.publish(Event(
                 event_type="run_completed", run_id=run_id,
-                data={"output": "", "task_type": "stream",
+                data={"output": "".join(answer_parts)[:2000], "task_type": "stream",
                       "total_ms": process_time},
             ))
 
