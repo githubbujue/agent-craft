@@ -440,6 +440,35 @@
   word-break: break-all;
 }
 
+/* ===== Run 详情: 输出区展示 =====
+   output 有三形态(Markdown 文本 / JSON 对象 / 普通字符串), RunOutput 组件
+   按类型分流后, 这里负责"限高滚动"与纯文本的换行、缩进保留。 */
+
+/* Markdown 正文: 限高滚动, 长回答不撑破弹窗 */
+.detail-value .md-body {
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 4px;
+  word-break: normal;      /* 覆盖父级的 break-all, 避免英文单词从中间断开 */
+  overflow-wrap: anywhere;
+}
+
+/* 纯文本 / 格式化 JSON: 等宽字体 + 保留换行与缩进 */
+.run-output-plain {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  max-height: 360px;
+  overflow: auto;
+  background: #fafbfc;
+  border: 1px solid #eef0f2;
+  border-radius: 4px;
+  padding: 10px 12px;
+}
+
 .text-primary {
   color: #1890ff;
 }

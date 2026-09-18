@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import Markdown from '../../components/Markdown';
 import './AdminDashboard.css';
 
 const statusColors = {
@@ -41,6 +42,28 @@ const OutputCell = ({ output }) => {
   } catch {
     return output.length > 60 ? output.substring(0, 60) + '...' : output;
   }
+};
+
+// Run 输出展示: agent_run.output 由后端 json.dumps 序列化后入库 ——
+// 字符串会被写成 "带双引号、换行变成字面 \n 两字符" 的形式, 直接渲染就会把
+// 转义符照抄到屏幕上。这里先反序列化, 再按类型分流显示:
+//   字符串(LLM 回答) → Markdown 渲染, 标题/代码块/列表都能正确显示
+//   对象/数组       → 格式化 JSON, 便于查阅评估结果这类结构化输出
+//   非法 JSON       → 保留换行的纯文本(pre 标签)
+const RunOutput = ({ raw }) => {
+  if (!raw) return <span>-</span>;
+
+  let value = raw;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    // 不是合法 JSON(例如历史脏数据或纯文本) → 按原文展示, 不白屏
+    return <pre className="run-output-plain">{String(raw)}</pre>;
+  }
+
+  return typeof value === 'string'
+    ? <Markdown content={value} />
+    : <pre className="run-output-plain">{JSON.stringify(value, null, 2)}</pre>;
 };
 
 const stepTypeLabels = {
@@ -270,7 +293,9 @@ export default function AgentRunManagement() {
                   </div>
                   <div className="detail-row">
                     <span className="detail-label">输出:</span>
-                    <span className="detail-value">{selectedRun.output || '-'}</span>
+                    <span className="detail-value">
+                      <RunOutput raw={selectedRun.output} />
+                    </span>
                   </div>
 
                   <h4>步骤轨迹</h4>
