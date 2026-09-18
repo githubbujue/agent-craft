@@ -14,6 +14,7 @@ import AgentRunManagement from './pages/admin/AgentRunManagement';
 import KnowledgeInspection from './pages/admin/KnowledgeInspection';
 import Reports from './pages/admin/Reports';
 import AdminChat from './pages/admin/AdminChat';
+import EvalDashboard from './pages/admin/EvalDashboard';
 
 const Layout = () => {
   const location = useLocation();
@@ -50,6 +51,7 @@ export default function App() {
           <Route path="agent-runs" element={<AgentRunManagement />} />
           <Route path="inspection" element={<KnowledgeInspection />} />
           <Route path="reports" element={<Reports />} />
+          <Route path="eval" element={<EvalDashboard />} />
           <Route path="chat" element={<AdminChat />} />
         </Route>
 

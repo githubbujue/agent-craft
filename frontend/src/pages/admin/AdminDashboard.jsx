@@ -31,6 +31,7 @@ export default function AdminDashboard() {
     else if (path.includes('/agent-runs')) setActiveMenu('agent-runs');
     else if (path.includes('/inspection')) setActiveMenu('inspection');
     else if (path.includes('/reports')) setActiveMenu('reports');
+    else if (path.includes('/eval')) setActiveMenu('eval');
     else if (path.includes('/chat')) setActiveMenu('chat');
   }, [navigate, location.pathname]);
 
@@ -49,6 +50,7 @@ export default function AdminDashboard() {
     { id: 'agent-runs', label: 'Agent执行记录', icon: '🔄', path: '/admin/agent-runs' },
     { id: 'inspection', label: '知识巡检', icon: '🔍', path: '/admin/inspection' },
     { id: 'reports', label: '自动报表', icon: '📈', path: '/admin/reports' },
+    { id: 'eval', label: '评估看板', icon: '🎯', path: '/admin/eval' },
   ];
 
   const handleMenuClick = (path) => {

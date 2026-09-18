@@ -1,14 +1,17 @@
 package com.demo.aiknowledge.controller.admin;
 
+import com.demo.aiknowledge.common.Result;
 import com.demo.aiknowledge.entity.AgentRun;
 import com.demo.aiknowledge.entity.ToolCall;
 import com.demo.aiknowledge.service.AgentRunService;
+import com.demo.aiknowledge.service.EvalStatsService;
 import com.demo.aiknowledge.service.ToolCallService;
 import jakarta.annotation.Resource;
 import org.springframework.web.bind.annotation.*;
 
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/admin/agent")
@@ -19,6 +22,9 @@ public class AgentAdminController {
     
     @Resource
     private ToolCallService toolCallService;
+
+    @Resource
+    private EvalStatsService evalStatsService;
     
     /**
      * 获取 Agent 运行记录列表
@@ -61,5 +67,18 @@ public class AgentAdminController {
             @RequestParam(defaultValue = "10") int limit
     ) {
         return toolCallService.getFailedToolCalls(limit);
+    }
+
+    /**
+     * 评估看板统计(检索充分性 / 答案质量 / 内容忠实度)
+     *
+     * <p>一次返回看板所需的全部数据, 前端只需一次请求。
+     */
+    @GetMapping("/eval-stats")
+    public Result<Map<String, Object>> getEvalStats(
+            @RequestParam(defaultValue = "0.8") double lowThreshold,
+            @RequestParam(defaultValue = "10") int lowLimit
+    ) {
+        return Result.success(evalStatsService.getEvalStats(lowThreshold, lowLimit));
     }
 }
