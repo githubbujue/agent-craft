@@ -3,40 +3,57 @@
    ======================================== */
 
 :root {
-  /* Fresh Green Theme Palette */
+  /* ===== 设计令牌: 中性灰阶 + 深松绿强调 =====
+     原则: 彩色只出现在三个地方 —— 主按钮 / 选中态 / 语义状态, 其余一律中性。
+     旧版是 "Fresh Green" 主题: 亮绿 #10b981 铺在背景、边框、文字上,
+     导致强调被稀释、整体偏"廉价"。这里把绿压暗成深松绿, 底色改为中性灰阶,
+     靠 1px 细线分区而不是靠阴影和位移。 */
+
+  /* 背景: 中性灰阶 */
   --bg-primary: #ffffff;
-  --bg-secondary: #f0fdf4;
-  --bg-tertiary: #ecfdf5;
-  --bg-hover: #dcfce7;
+  --bg-secondary: #f4f6f9;
+  --bg-tertiary: #f0f2f5;
+  --bg-hover: #e9ecf1;
   --bg-input: #ffffff;
 
-  /* Text Colors */
-  --text-primary: #1f2937;
-  --text-secondary: #4b5563;
-  --text-muted: #6b7280;
+  /* 文字: 三级灰阶(主 / 次 / 弱) */
+  --text-primary: #14161a;
+  --text-secondary: #5c6370;
+  --text-muted: #9aa1ad;
 
-  /* Accent Colors - Fresh Green */
-  --accent-primary: #10b981;
-  --accent-secondary: #059669;
-  --accent-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  /* 强调: 深松绿 —— 仅用于主按钮与选中态 */
+  --accent-primary: #1f6f5c;
+  --accent-secondary: #17594a;
+  --accent-gradient: linear-gradient(135deg, #1f6f5c 0%, #17594a 100%);
+  --accent-soft: #eaf3f0;
 
-  /* Borders */
-  --border-color: #d1fae5;
-  --border-light: #a7f3d0;
+  /* 边框: 中性细线(替代绿色边框) */
+  --border-color: #e6e8ec;
+  --border-light: #d8dbe0;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  /* 语义色 */
+  --danger: #c0392b;
+  --danger-soft: rgba(192, 57, 43, 0.08);
+
+  /* 阴影: 统一冷灰, 去掉彩色投影 */
+  --shadow-sm: 0 1px 2px rgba(20, 22, 26, 0.05);
+  --shadow-md: 0 2px 10px rgba(20, 22, 26, 0.07);
+  --shadow-lg: 0 8px 28px rgba(20, 22, 26, 0.10);
+
+  /* 圆角梯度 */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-pill: 24px;
 
   /* Spacing */
-  --sidebar-width: 280px;
-  --header-height: 60px;
+  --sidebar-width: 260px;
+  --header-height: 56px;
 
   /* Transitions */
   --transition-fast: 0.15s ease;
-  --transition-normal: 0.25s ease;
-  --transition-smooth: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 0.2s ease;
+  --transition-smooth: 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ========================================
@@ -45,6 +62,8 @@
 
 .chat-layout {
   display: flex;
+  /* /chat 已不再挂全局 Header(见 App.jsx 的 FULLSCREEN_PATHS),
+     所以这里直接占满视口 —— 顶栏、侧栏、输入框全在一屏内, 不出现整页滚动 */
   height: 100vh;
   background-color: var(--bg-primary);
   color: var(--text-primary);
@@ -70,31 +89,36 @@
 }
 
 .sidebar-header {
-  padding: 16px;
+  padding: 14px 12px 12px;
+  /* 保留与下方会话列表的分隔线: 去掉它以后头部会和列表糊成一片,
+     白底按钮在浅灰侧栏上更会显得像"浮着的半透明层" */
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 }
 
 .sidebar-logo {
-  margin-bottom: 16px;
+  margin-bottom: 12px;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: transform var(--transition-fast);
+  transition: background-color var(--transition-fast);
 }
 
 .sidebar-logo:hover {
-  transform: scale(1.02);
+  background: var(--bg-tertiary);
 }
 
 .sidebar-logo h2 {
-  font-size: 1.1rem;
+  font-size: 15px;
   font-weight: 600;
-  color: #059669 !important;
+  /* 保留 !important(与原作者一致): 去掉它之后标题会显示成白色 ——
+     说明有更高优先级的规则在压这条, 加回来最省事也最稳 */
+  color: var(--text-primary) !important;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   margin: 0;
-  letter-spacing: -0.02em;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  letter-spacing: 0.01em;
 }
 
 .new-chat-btn {
@@ -102,30 +126,31 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 12px 16px;
-  background: var(--bg-tertiary);
+  gap: 8px;
+  padding: 10px 16px;
+  /* 白底 + 细边框 + 胶囊圆角: 在浅灰侧栏上给出明确的"按钮感"。
+     之前是纯白底但圆角只有 10px、边框太浅, 视觉上读不出边界, 才会像一块浮着的亮斑 */
+  background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: var(--radius-pill);
   color: var(--text-primary);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 500;
-  transition: all var(--transition-normal);
-  text-align: left;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  text-align: center;
+  box-shadow: 0 1px 2px rgba(20, 22, 26, 0.04);
 }
 
 .new-chat-btn:hover {
-  background: var(--bg-hover);
   border-color: var(--border-light);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 2px 8px rgba(20, 22, 26, 0.08);
 }
 
 .new-chat-icon {
-  font-size: 18px;
-  font-weight: 300;
-  opacity: 0.8;
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--text-secondary);
 }
 
 /* ========================================
@@ -137,6 +162,19 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding: 8px;
+}
+
+/* 分组标题: 小号灰字, 只做时间分隔, 不做装饰 */
+.conversation-group-title {
+  padding: 10px 12px 4px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0.03em;
+}
+
+.conversation-group + .conversation-group .conversation-group-title {
+  padding-top: 16px;
 }
 
 .conversation-list::-webkit-scrollbar {
@@ -157,18 +195,18 @@
 }
 
 .conversation-item {
-  padding: 12px 14px;
-  margin-bottom: 4px;
-  border-radius: 10px;
+  padding: 9px 10px;
+  margin: 2px 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 14px;
+  font-size: 13.5px;
   color: var(--text-secondary);
-  transition: all var(--transition-normal);
+  transition: background-color var(--transition-fast), color var(--transition-fast);
   position: relative;
-  border: 1px solid transparent;
+  border: none;
   overflow: visible;
   z-index: 1;
 }
@@ -179,21 +217,23 @@
   z-index: 5;
 }
 
+/* 选中态只用一层浅底表达 —— 旧版同时叠了底色 + 边框,
+   两个信号说同一件事, 反而显得脏 */
 .conversation-item.active {
-  background-color: rgba(16, 185, 129, 0.1);
+  background-color: var(--accent-soft);
   color: var(--text-primary);
-  border-color: rgba(16, 185, 129, 0.2);
+  font-weight: 500;
 }
 
+/* 置顶: 靠底色稍深区分, 去掉左侧 3px 彩条(彩条会让列表变成"彩旗") */
 .conversation-item.pinned {
-  background-color: rgba(16, 185, 129, 0.05);
-  border-left: 3px solid var(--accent-primary);
+  background-color: var(--bg-tertiary);
 }
 
 .conversation-item.pinned .conversation-title::before {
   content: '📌';
   margin-right: 6px;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .pin-icon {
@@ -212,7 +252,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
+  font-size: 13.5px;
   color: var(--text-primary);
 }
 
@@ -229,10 +269,10 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 16px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  transition: all var(--transition-fast);
+  font-size: 15px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  transition: opacity var(--transition-fast), background-color var(--transition-fast);
   flex-shrink: 0;
   font-weight: 600;
   line-height: 1;
@@ -294,11 +334,11 @@
 }
 
 .menu-item.delete {
-  color: #ef4444;
+  color: var(--danger);
 }
 
 .menu-item.delete:hover {
-  background-color: rgba(239, 68, 68, 0.1);
+  background-color: var(--danger-soft);
 }
 
 .rename-input {
@@ -317,7 +357,8 @@
    ======================================== */
 
 .sidebar-footer {
-  padding: 16px;
+  position: relative;          /* 账号菜单以此为定位参照(向上弹出) */
+  padding: 8px;
   border-top: 1px solid var(--border-color);
   margin-top: auto;
   flex-shrink: 0;
@@ -326,30 +367,144 @@
 .user-profile {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 10px;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   color: var(--text-secondary);
-  transition: all var(--transition-normal);
+  transition: background-color var(--transition-fast);
 }
 
-.user-profile:hover {
+.user-profile:hover,
+.user-profile.open {
   background-color: var(--bg-tertiary);
   color: var(--text-primary);
 }
 
+/* 用户名占据剩余宽度, 过长省略 —— 不让长名字把"更多"按钮挤出去 */
+.user-name {
+  flex: 1;
+  font-size: 13.5px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "更多"入口: 平时淡出, 悬停或展开时显现(与会话项的菜单按钮同一套交互语言) */
+.user-more {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.user-profile:hover .user-more,
+.user-profile.open .user-more {
+  opacity: 1;
+}
+
+/* 侧栏底部的用户区是"功能入口", 不是主操作 ——
+   用中性底 + 深色图标, 把强调色留给真正的主按钮 */
 .user-avatar {
-  width: 36px;
-  height: 36px;
-  background: var(--accent-gradient);
-  border-radius: 10px;
+  width: 32px;
+  height: 32px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
-  color: white;
+  font-size: 15px;
+  color: var(--text-secondary);
   flex-shrink: 0;
+}
+
+/* ========================================
+   账号菜单(侧栏底部点击用户区展开)
+   ======================================== */
+
+.user-menu {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(100% + 6px);      /* 向上弹出, 与触发区留 6px 间隙 */
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  z-index: 200;
+  animation: fadeIn 0.15s ease;
+}
+
+.user-menu-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+}
+
+.user-menu-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+.user-menu-info {
+  min-width: 0;                  /* 允许子元素在 flex 里正常省略 */
+}
+
+.user-menu-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu-sub {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.user-menu-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 4px 0;
+}
+
+.user-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.user-menu-item:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.user-menu-icon {
+  font-size: 14px;
+  color: var(--text-muted);
 }
 
 /* ========================================
@@ -367,11 +522,12 @@
 }
 
 .chat-header {
-  padding: 16px 24px;
+  height: var(--header-height);
+  padding: 0 24px;
   display: flex;
   align-items: center;
   border-bottom: 1px solid var(--border-color);
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(12px);
   position: sticky;
   top: 0;
@@ -385,10 +541,10 @@
 
 .chat-header h3 {
   margin: 0;
-  font-size: 15px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: -0.01em;
+  letter-spacing: 0.01em;
 }
 
 /* ========================================
@@ -398,9 +554,10 @@
 .messages-container {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 0;
+  padding: 28px 24px 20px;
   display: flex;
   flex-direction: column;
+  gap: 22px;
   width: 100%;
   max-width: 100%;
 }
@@ -426,10 +583,13 @@
    Messages
    ======================================== */
 
+/* 内容区限宽居中: 一行过长时视线要横跨整屏, 阅读效率低。
+   768px 是长文阅读的舒适上限(与主流对话产品一致)。 */
 .message-row {
   width: 100%;
+  max-width: 768px;
+  margin: 0 auto;
   display: flex;
-  padding: 8px 0;
   animation: slideUp 0.25s ease;
 }
 
@@ -446,18 +606,16 @@
 
 .message-row.user {
   justify-content: flex-end;
-  padding: 8px 24px;
 }
 
 .message-row.assistant {
   justify-content: flex-start;
-  padding: 8px 24px;
 }
 
 .message-content-wrapper {
-  max-width: 70%;
+  max-width: 82%;
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: flex-start;
 }
 
@@ -465,40 +623,39 @@
   flex-direction: row-reverse;
 }
 
-/* User Message Bubble */
+/* 用户消息: 浅灰气泡 —— 不用强调色铺满,
+   大块饱和色在长对话里会持续抢注意力 */
 .message-row.user .message-body {
   text-align: left;
-  background: var(--accent-gradient);
-  color: white;
-  padding: 14px 18px;
-  border-radius: 16px 16px 4px 16px;
-  box-shadow: var(--shadow-sm);
-}
-
-/* Assistant Message Bubble */
-.message-row.assistant .message-body {
   background: var(--bg-secondary);
-  padding: 16px 20px;
-  border-radius: 16px 16px 16px 4px;
   color: var(--text-primary);
-  box-shadow: var(--shadow-sm);
+  padding: 10px 16px;
+  border-radius: 18px;
   border: 1px solid var(--border-color);
 }
 
+/* AI 消息: 无气泡纯排版 —— 回答通常很长, 套外框会显得笨重,
+   且 Markdown 的标题/列表/代码块在框内会显得局促 */
+.message-row.assistant .message-body {
+  background: transparent;
+  padding: 2px 0;
+  color: var(--text-primary);
+}
+
 .message-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  font-size: 18px;
+  font-size: 15px;
 }
 
 .message-row.user .message-avatar {
-  background: var(--accent-gradient);
-  color: white;
+  background: var(--accent-soft);
+  color: var(--accent-primary);
 }
 
 .message-row.assistant .message-avatar {
@@ -509,7 +666,7 @@
 .message-body {
   flex: 1;
   font-size: 15px;
-  line-height: 1.7;
+  line-height: 1.75;
   color: var(--text-primary);
   word-break: break-word;
   white-space: pre-wrap;
@@ -593,40 +750,42 @@
   width: 100%;
   display: flex;
   justify-content: center;
-  padding: 16px 20px 24px;
-  background: linear-gradient(to top, var(--bg-primary) 60%, transparent);
+  padding: 12px 24px 20px;
+  background: var(--bg-primary);
   position: relative;
   z-index: 20;
   flex-shrink: 0;
 }
 
+/* 大圆角 + 轻阴影 + 悬浮底部, 是与上方内容区拉开层次的关键 */
 .input-wrapper {
   width: 100%;
-  max-width: 800px;
+  max-width: 768px;
   position: relative;
-  border-radius: 16px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--border-color);
-  background: var(--bg-secondary);
-  box-shadow: var(--shadow-lg);
-  transition: all var(--transition-normal);
+  background: var(--bg-primary);
+  box-shadow: var(--shadow-md);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
+/* 聚焦反馈用"阴影加深", 而不是加一圈彩色描边(后者胶水感很重) */
 .input-wrapper:focus-within {
-  border-color: var(--accent-primary);
-  box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.15), var(--shadow-lg);
+  border-color: var(--border-light);
+  box-shadow: var(--shadow-lg);
 }
 
 .chat-input-area {
   display: flex;
   align-items: flex-end;
-  padding: 12px;
-  gap: 8px;
+  padding: 7px 7px 7px 18px;
+  gap: 6px;
 }
 
 .input-buttons {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   flex-shrink: 0;
 }
 
@@ -635,7 +794,7 @@
   max-height: 150px;
   border: none;
   outline: none;
-  padding: 10px 12px;
+  padding: 9px 0;
   font-size: 15px;
   resize: none;
   background: transparent;
@@ -657,20 +816,23 @@
   -ms-overflow-style: none;
 }
 
+/* 三个按钮统一 34px 圆形。
+   发送是主操作 → 唯一的强调色实心按钮;
+   停止 / 上传是工具属性 → 降级为灰色图标按钮, 不抢主操作的注意力。 */
 .send-btn {
-  background: var(--accent-gradient);
-  color: white;
+  background: var(--accent-primary);
+  color: #fff;
   border: none;
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all var(--transition-normal);
+  transition: background-color var(--transition-fast);
   flex-shrink: 0;
-  font-size: 16px;
+  font-size: 15px;
 }
 
 .send-btn:disabled {
@@ -680,52 +842,48 @@
 }
 
 .send-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 12px rgba(255, 107, 53, 0.4);
+  background: var(--accent-secondary);
 }
 
 .stop-btn {
-  background: #ef4444;
-  color: white;
+  background: var(--danger);
+  color: #fff;
   border: none;
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all var(--transition-normal);
+  transition: background-color var(--transition-fast);
   flex-shrink: 0;
-  font-size: 16px;
+  font-size: 15px;
 }
 
 .stop-btn:hover {
-  background: #dc2626;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 12px rgba(239, 68, 68, 0.4);
+  background: #a93226;
 }
 
 .upload-btn {
-  background: #3b82f6;
-  color: white;
+  background: transparent;
+  color: var(--text-secondary);
   border: none;
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all var(--transition-normal);
+  transition: background-color var(--transition-fast), color var(--transition-fast);
   flex-shrink: 0;
   font-size: 16px;
 }
 
 .upload-btn:hover:not(:disabled).upload-btn:hover {
-  background: #2563eb;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 12px rgba(59, 130, 246, 0.4);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 /* 图片消息样式 */
@@ -795,7 +953,7 @@
 }
 
 .upload-btn:disabled {
-  background: var(--bg-tertiary);
+  background: transparent;
   cursor: not-allowed;
   color: var(--text-muted);
 }
@@ -867,8 +1025,8 @@
 }
 
 .remove-image-btn:hover {
-  background-color: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
+  background-color: var(--danger-soft);
+  color: var(--danger);
 }
 
 /* ========================================
@@ -883,61 +1041,55 @@
   justify-content: center;
   padding: 40px;
   text-align: center;
-  background: radial-gradient(ellipse at center, var(--bg-secondary) 0%, var(--bg-primary) 70%);
+  background: var(--bg-primary);
 }
 
+/* 去掉"渐变方块 + 彩色投影 + 上下浮动动画"三件套 ——
+   这三样叠起来正是典型的模板感, 克制的圆形图标反而更经看 */
 .welcome-avatar {
-  width: 72px;
-  height: 72px;
-  border-radius: 20px;
-  background: var(--accent-gradient);
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-primary);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 32px;
-  color: white;
-  margin-bottom: 24px;
-  box-shadow: 0 8px 24px rgba(255, 107, 53, 0.35);
-  animation: float 3s ease-in-out infinite;
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+  font-size: 26px;
+  margin-bottom: 20px;
 }
 
 .welcome-screen h1 {
-  font-size: 26px;
+  font-size: 22px;
   font-weight: 600;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: 0.01em;
 }
 
 .welcome-screen p {
-  color: var(--text-muted);
-  font-size: 15px;
-  margin-bottom: 32px;
-  max-width: 400px;
-  line-height: 1.6;
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin-bottom: 0;
+  max-width: 420px;
+  line-height: 1.7;
 }
 
+/* 唯一的实心强调按钮: 引导力集中在这一处 */
 .start-btn {
-  background: var(--accent-gradient);
-  color: white;
+  background: var(--accent-primary);
+  color: #fff;
   border: none;
-  padding: 14px 32px;
-  border-radius: 12px;
-  font-size: 15px;
-  font-weight: 600;
+  padding: 11px 24px;
+  border-radius: var(--radius-pill);
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
-  transition: all var(--transition-normal);
-  box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
+  transition: background-color var(--transition-fast);
 }
 
 .start-btn:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 24px rgba(255, 107, 53, 0.45);
+  background: var(--accent-secondary);
 }
 
 /* ========================================
@@ -965,12 +1117,19 @@
 
 /* Selection */
 ::selection {
-  background: rgba(255, 107, 53, 0.3);
+  background: rgba(31, 111, 92, 0.18);
   color: var(--text-primary);
 }
 
-/* Focus visible for accessibility */
-:focus-visible {
+/* 键盘焦点环: 仅给可交互元素。
+   裸写 :focus-visible 会让容器(body / 布局 div)在获得焦点时也画出整屏描边,
+   观感上像"页面被框住了" */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
 }
@@ -1065,13 +1224,12 @@
 }
 
 .modal-btn.confirm {
-  background: var(--accent-gradient);
-  color: white;
+  background: var(--accent-primary);
+  color: #fff;
 }
 
 .modal-btn.confirm:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+  background: var(--accent-secondary);
 }
 
 @keyframes fadeIn {
@@ -1177,50 +1335,54 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
-  background: var(--bg-tertiary);
+  background: transparent;
   cursor: pointer;
-  font-size: 16px;
-  transition: all var(--transition-normal);
-  opacity: 0.6;
+  font-size: 15px;
+  transition: background-color var(--transition-fast),
+              border-color var(--transition-fast),
+              opacity var(--transition-fast);
+  opacity: 0.55;
 }
 
+/* 反馈是次级操作: 默认压低对比度, 悬停或选中才显现 */
 .feedback-btn:hover {
   opacity: 1;
-  background: var(--bg-hover);
+  background: var(--bg-tertiary);
   border-color: var(--border-light);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-sm);
 }
 
 .feedback-btn.active {
   opacity: 1;
-  background: var(--accent-primary);
+  background: var(--accent-soft);
   border-color: var(--accent-primary);
-  color: white;
+  color: var(--accent-primary);
 }
 
+/* like 用强调色, dislike 用危险色 —— 两个语义各自一个颜色, 不再都用实心铺满 */
 .feedback-btn.like.active {
-  background: #10b981;
-  border-color: #10b981;
+  background: var(--accent-soft);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
 }
 
 .feedback-btn.dislike.active {
-  background: #ef4444;
-  border-color: #ef4444;
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .feedback-btn.like:hover:not(.active) {
-  background: rgba(16, 185, 129, 0.1);
-  border-color: rgba(16, 185, 129, 0.3);
+  background: var(--accent-soft);
+  border-color: var(--accent-primary);
 }
 
 .feedback-btn.dislike:hover:not(.active) {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.3);
+  background: var(--danger-soft);
+  border-color: var(--danger);
 }
 
 /* ========================================
@@ -1243,12 +1405,50 @@
 }
 
 .task-type-badge:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
+  background: var(--bg-hover);
 }
 
 .welcome-hint {
   color: var(--text-muted);
   font-size: 14px;
   margin-top: 8px;
+}
+
+/* 示例问题卡片: 空会话时给出"可以问什么"的起点,
+   同时给这片区域一点内容密度 —— 只有图标 + 标题时会显得空 */
+.example-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+  max-width: 560px;
+  margin-top: 24px;
+}
+
+.example-card {
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color var(--transition-fast),
+              border-color var(--transition-fast),
+              color var(--transition-fast);
+}
+
+.example-card:hover {
+  background: var(--bg-secondary);
+  border-color: var(--border-light);
+  color: var(--text-primary);
+}
+
+@media (max-width: 640px) {
+  .example-grid {
+    grid-template-columns: 1fr;
+  }
 }

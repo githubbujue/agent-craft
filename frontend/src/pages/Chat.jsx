@@ -13,6 +13,50 @@ const TASK_TYPE_INFO = {
   unknown: { icon: '🤖', label: 'AI助手', color: '#6b7280' }
 };
 
+// 欢迎区的示例问题: 点一下直接提问, 省去"想开场白"的成本
+const EXAMPLE_QUESTIONS = [
+  '知识库里有哪几份文档？',
+  '什么是数据库索引？',
+  '帮我看看最近的知识巡检结果',
+  '最近的运营数据怎么样？',
+];
+
+// 会话按时间分组(参照主流对话产品的做法): 置顶 / 昨天 / 7 天内 / 30 天内 / 更早
+// 时间轴是"找回上次对话"的主要线索, 比一长串平铺更容易扫读
+const DAY_MS = 86400000;
+const buildConversationGroups = (list) => {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const buckets = [['置顶', []], ['昨天', []], ['7 天内', []], ['30 天内', []], ['更早', []]];
+  const map = Object.fromEntries(buckets);
+  (list || []).forEach((conv) => {
+    if (conv.isPinned) {
+      map['置顶'].push(conv);
+      return;
+    }
+    const t = conv.createTime ? new Date(conv.createTime).getTime() : 0;
+    const diff = todayStart - t;
+    if (diff < DAY_MS) map['昨天'].push(conv);
+    else if (diff < 7 * DAY_MS) map['7 天内'].push(conv);
+    else if (diff < 30 * DAY_MS) map['30 天内'].push(conv);
+    else map['更早'].push(conv);
+  });
+  return buckets.filter(([, items]) => items.length > 0);
+};
+
+// 账号菜单的副标题: 手机号是最能说明"这是谁"的信息, 但原样显示没必要 —— 脱敏成 138****8000。
+// 没有手机号时退回用户 ID; 两者都没有就返回空串(调用处据此不渲染这一行)。
+const formatUserMeta = (user) => {
+  const phone = user?.phone;
+  if (phone && /^1\d{10}$/.test(phone)) {
+    return `${phone.slice(0, 3)}****${phone.slice(7)}`;
+  }
+  if (user?.id) {
+    return `ID: ${user.id}`;
+  }
+  return '';
+};
+
 export default function Chat() {
   const navigate = useNavigate();
   const userId = parseInt(localStorage.getItem('userId'));
@@ -34,9 +78,24 @@ export default function Chat() {
   const [uploadedImageId, setUploadedImageId] = useState(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [displayName, setDisplayName] = useState('用户');
+  const [userMeta, setUserMeta] = useState('');
   const messagesEndRef = useRef(null);
   const menuRef = useRef(null);
+  const userMenuRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  // 读取登录时写入的用户信息(Login.jsx 存入 localStorage.user)
+  useEffect(() => {
+    try {
+      const u = JSON.parse(localStorage.getItem('user') || '{}');
+      setDisplayName(u.username || u.nickname || '用户');
+      setUserMeta(formatUserMeta(u));
+    } catch {
+      // localStorage 内容异常时保持默认值, 不阻断页面渲染
+    }
+  }, []);
 
   useEffect(() => {
     document.title = 'AI 知识系统-智能对话';
@@ -146,6 +205,10 @@ export default function Chat() {
       if (menuRef.current && !menuRef.current.contains(event.target)) {
         setMenuOpenId(null);
       }
+      // 账号菜单同理: 点到外面就收起
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
+        setUserMenuOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => {
@@ -253,8 +316,11 @@ export default function Chat() {
       const response = await chatAPI.createConversation(userId, '新对话');
       setConversations([response.data, ...conversations]);
       setCurrentConversation(response.data);
+      // 返回新会话对象: 调用方(如"进来即可提问")需要立刻拿到 id 继续后续流程
+      return response.data;
     } catch (err) {
       console.error('创建会话失败:', err);
+      return null;
     }
   };
 
@@ -264,19 +330,27 @@ export default function Chat() {
     setShowDeleteConfirm(true);
   };
 
-  const handleSendMessage = async (e) => {
+  // overrideText: 由"示例问题"卡片传入 —— 点击即发送, 不必等用户手动回车
+  const handleSendMessage = async (e, overrideText) => {
     e.preventDefault();
-    if (!inputMessage.trim() && !uploadedImage) return;
-    if (!currentConversation) return;
+    const text = overrideText !== undefined ? overrideText : inputMessage;
+    if (!text.trim() && !uploadedImage) return;
 
-    let messageContent = inputMessage;
+    // 允许"进来就能提问": 还没有会话时静默创建一个, 不必先点"开始新对话"
+    let conv = currentConversation;
+    if (!conv) {
+      conv = await handleCreateConversation();
+      if (!conv) return;
+    }
+
+    let messageContent = text;
     if (uploadedImage) {
       messageContent = `[图片: ${uploadedImage.name}]\n${inputMessage}`;
     }
 
     const userMessage = {
       id: Date.now(),
-      conversationId: currentConversation.id,
+      conversationId: conv.id,
       role: 'user',
       content: messageContent,
       imageUrl: uploadedImage?.url,
@@ -286,7 +360,7 @@ export default function Chat() {
     const thinkingMessageId = Date.now() + 1;
     const thinkingMessage = {
       id: thinkingMessageId,
-      conversationId: currentConversation.id,
+      conversationId: conv.id,
       role: 'assistant',
       content: '',
       isStreaming: true,
@@ -309,9 +383,9 @@ export default function Chat() {
     setAbortController(controller);
 
     try {
-      let aiRequestContent = inputMessage;
+      let aiRequestContent = text;
       if (uploadedImage && uploadedImageId) {
-        aiRequestContent = `请根据图片内容回答问题。图片ID: ${uploadedImageId}\n图片名称: ${uploadedImage.name}\n图片URL: ${uploadedImage.url}\n问题: ${inputMessage}`;
+        aiRequestContent = `请根据图片内容回答问题。图片ID: ${uploadedImageId}\n图片名称: ${uploadedImage.name}\n图片URL: ${uploadedImage.url}\n问题: ${text}`;
       }
 
       // 流式接收: 逐 token 实时更新最后一条 assistant 消息（先挂临时 id, 落库后替换为真实 id）
@@ -321,7 +395,7 @@ export default function Chat() {
       await chatAPI.sendMessageStream(
         {
           userId,
-          conversationId: currentConversation.id,
+          conversationId: conv.id,
           content: aiRequestContent
         },
         {
@@ -434,6 +508,11 @@ export default function Chat() {
       setProcessingStep(null);
       setAbortController(null);
     }
+  };
+
+  // 示例问题卡片: 点击即发送(复用主发送链路, 无会话时会自动创建)
+  const handleExampleClick = (question) => {
+    handleSendMessage({ preventDefault: () => {} }, question);
   };
 
   const handleStopGeneration = () => {
@@ -555,7 +634,10 @@ export default function Chat() {
         </div>
 
         <div className="conversation-list">
-          {conversations.map(conv => (
+          {buildConversationGroups(conversations).map(([groupLabel, groupItems]) => (
+            <div className="conversation-group" key={groupLabel}>
+              <div className="conversation-group-title">{groupLabel}</div>
+              {groupItems.map(conv => (
             <div
               key={conv.id}
               className={`conversation-item ${currentConversation?.id === conv.id ? 'active' : ''} ${conv.isPinned ? 'pinned' : ''}`}
@@ -599,23 +681,59 @@ export default function Chat() {
                 </div>
               )}
             </div>
+              ))}
+            </div>
           ))}
         </div>
 
-        <div className="sidebar-footer">
-          <div className="user-profile" onClick={handleLogout} title="点击退出登录">
+        {/* 侧栏底部: 用户区(头像 + 用户名 + 更多)。原来这里是一个"退出登录"按钮,
+            现在把登录信息与退出一起收进账号菜单, 点击才展开 —— 与主流对话产品形态一致 */}
+        <div className="sidebar-footer" ref={userMenuRef}>
+          <div
+            className={`user-profile ${userMenuOpen ? 'open' : ''}`}
+            onClick={() => setUserMenuOpen(v => !v)}
+            title="账号"
+          >
             <div className="user-avatar">👤</div>
-            <span>退出登录</span>
+            <span className="user-name">{displayName}</span>
+            <span className="user-more">•••</span>
           </div>
+
+          {userMenuOpen && (
+            <div className="user-menu">
+              <div className="user-menu-header">
+                <div className="user-menu-avatar">👤</div>
+                <div className="user-menu-info">
+                  <div className="user-menu-name">{displayName}</div>
+                  {/* 副标题用脱敏手机号(或用户 ID), 比无信息量的"已登录"有用 */}
+                  {userMeta && <div className="user-menu-sub">{userMeta}</div>}
+                </div>
+              </div>
+              <div className="user-menu-divider" />
+              <div
+                className="user-menu-item"
+                onClick={() => {
+                  setUserMenuOpen(false);
+                  navigate('/knowledge');
+                }}
+              >
+                <span className="user-menu-icon">📚</span>
+                知识库
+              </div>
+              <div className="user-menu-item" onClick={handleLogout}>
+                <span className="user-menu-icon">⏻</span>
+                退出登录
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="chat-main">
-        {currentConversation ? (
-          <>
+        <>
             <div className="chat-header">
               <div className="chat-header-left">
-                <h3>{currentConversation.title || '新对话'}</h3>
+                <h3>{currentConversation?.title || '新对话'}</h3>
               </div>
             </div>
 
@@ -624,7 +742,19 @@ export default function Chat() {
                 <div className="welcome-screen">
                   <div className="welcome-avatar">🤖</div>
                   <h1>今天有什么可以帮到你？</h1>
-                  <p className="welcome-hint">我可以帮你回答知识问题、进行知识巡检、管理助手等</p>
+                  <p className="welcome-hint">基于知识库回答，并标注引用来源</p>
+                  <div className="example-grid">
+                    {EXAMPLE_QUESTIONS.map((q) => (
+                      <button
+                        key={q}
+                        type="button"
+                        className="example-card"
+                        onClick={() => handleExampleClick(q)}
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               ) : (
                 messages.map((msg, index) => (
@@ -759,16 +889,6 @@ export default function Chat() {
               </div>
             </div>
           </>
-        ) : (
-          <div className="welcome-screen">
-            <div className="welcome-avatar">🤖</div>
-            <h1>欢迎使用 AI 知识系统</h1>
-            <p>基于 RAG 技术，为您提供精准的企业知识问答服务</p>
-            <button className="start-btn" onClick={handleCreateConversation}>
-              开始新对话
-            </button>
-          </div>
-        )}
       </div>
 
       {showDeleteConfirm && (

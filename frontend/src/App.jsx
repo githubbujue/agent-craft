@@ -16,9 +16,14 @@ import Reports from './pages/admin/Reports';
 import AdminChat from './pages/admin/AdminChat';
 import EvalDashboard from './pages/admin/EvalDashboard';
 
+// 这些页面自带完整的布局, 不再挂全局 Header:
+//   /login /register —— 独立的登录注册页
+//   /chat           —— 沉浸式对话界面(用户信息与退出收在侧栏底部, 顶部不需要再占一条)
+const FULLSCREEN_PATHS = ['/login', '/register', '/chat'];
+
 const Layout = () => {
   const location = useLocation();
-  const showHeader = !['/login', '/register'].includes(location.pathname) && !location.pathname.startsWith('/admin');
+  const showHeader = !FULLSCREEN_PATHS.includes(location.pathname) && !location.pathname.startsWith('/admin');
 
   return (
     <>
