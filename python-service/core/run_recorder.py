@@ -147,7 +147,13 @@ class RunRecorder:
             conn.close()
 
     def _insert_step(self, event: Event):
-        """STEP 类事件 -> INSERT agent_step"""
+        """STEP 类事件 -> INSERT agent_step
+
+        status 允许由事件自带(默认 COMPLETED), 并支持写入 error_message ——
+        这是为"后台任务失败"准备的: 忠实度评判跑在 daemon 线程里, 失败时
+        fail-open 不影响业务, 但需要留一条 FAILED 记录。否则"评判失败"与
+        "压根没评判"在页面上长得一模一样, 连排查的入口都没有。
+        """
         data = event.data
         output = data.get("output")
         if isinstance(output, (dict, list)):
@@ -158,16 +164,18 @@ class RunRecorder:
             cur.execute(
                 """INSERT INTO agent_step
                    (id, run_id, step_type, step_name, status,
-                    input, output, start_time, end_time,
+                    input, output, error_message, start_time, end_time,
                     duration_ms, created_at)
-                   VALUES (%s, %s, %s, %s, 'COMPLETED', %s, %s, %s, %s, %s, %s)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     str(uuid.uuid4()),
                     event.run_id,
                     event.event_type,
                     _STEP_NAME.get(event.event_type, event.event_type),
+                    data.get("status") or "COMPLETED",
                     data.get("input"),
                     output,
+                    data.get("error"),
                     event.timestamp,
                     event.timestamp,
                     data.get("duration_ms"),

@@ -140,6 +140,7 @@ def _parse_judge_output(raw: str) -> dict:
 def _judge_worker(question: str, answer: str, docs: list, chain: str, run_id: str) -> None:
     """后台线程体: 调 LLM 评判 + 发布留痕事件。任何异常都不外抛。"""
     started = time.time()
+    raw = ""  # 提到 try 之外: 失败分支要靠它还原"模型到底吐了什么"
     try:
         contexts = _extract_contexts(docs)
         if not contexts:
@@ -151,7 +152,14 @@ def _judge_worker(question: str, answer: str, docs: list, chain: str, run_id: st
         )
         # temperature=0: 评判任务要确定性, 不能随机
         # max_tokens=1200: prompt 已约束输出精简, 但留足余量防止 JSON 被截断
-        raw = _get_llm().generate(prompt, temperature=0.0, max_tokens=1200)
+        # 空输出重试一次: 这类失败多为服务端限流/超时等偶发抖动, 重试命中率高
+        for attempt in range(2):
+            raw = _get_llm().generate(prompt, temperature=0.0, max_tokens=1200)
+            if _FAITHFULNESS_RE.search(raw or ""):
+                break
+            if attempt == 0:
+                logger.info(f"[FaithfulnessJudge][{chain}] output unusable, retrying once")
+
         result = _parse_judge_output(raw)
         cost_ms = int((time.time() - started) * 1000)
 
@@ -168,8 +176,22 @@ def _judge_worker(question: str, answer: str, docs: list, chain: str, run_id: st
         logger.info(f"[FaithfulnessJudge][{chain}] faithfulness={result['faithfulness']} "
                     f"unsupported_claims={len(result['unsupported_claims'])} ({cost_ms}ms)")
     except Exception as e:
-        # fail-open: 评判是"后台遥测", 失败绝不影响任何业务
-        logger.warning(f"[FaithfulnessJudge][{chain}] judge failed (ignored): {e}")
+        cost_ms = int((time.time() - started) * 1000)
+        # fail-open 保持不变: 评判是"后台遥测", 失败绝不影响任何业务。
+        # 但要留下两样东西, 否则这类失败完全不可观测:
+        #   1) 日志记下模型原始返回(长度 + 开头) —— 只知道"找不到 faithfulness"
+        #      无从下手, 得看清它是空串、道歉话术、还是被截断的 JSON
+        #   2) 库里留一条 FAILED 记录 —— 让"评判失败"在页面上与"压根没评判"区分开
+        logger.warning(
+            f"[FaithfulnessJudge][{chain}] judge failed (ignored): {e} "
+            f"({cost_ms}ms, raw_len={len(raw)}, raw_head={raw[:200]!r})")
+        _publish_with_run_id(run_id, "faithfulness_evaluated", {
+            "input": question[:200],
+            "output": {"chain": chain, "error": str(e)[:300]},
+            "status": "FAILED",
+            "error": str(e)[:500],
+            "duration_ms": cost_ms,
+        })
 
 
 def trigger_faithfulness_judge(question: str, answer: str, docs: list,
