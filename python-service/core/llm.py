@@ -18,20 +18,24 @@ if config.TESSERACT_PATH:
 class LLMService:
     def __init__(self):
         # 默认使用阿里云通义千问 (需要设置 DASHSCOPE_API_KEY 环境变量)
-        api_key = config.DASHSCOPE_API_KEY
+        # LLM_API_KEY 可单独覆盖(切换到其他厂商时使用), 未配置则沿用 DASHSCOPE_API_KEY
+        api_key = config.LLM_API_KEY
         
         if not api_key:
             config.logger.warning("DASHSCOPE_API_KEY not found. LLM features will not work properly.")
             self.llm = None
         else:
-            # 使用百炼 OpenAI 兼容模式调用 deepseek-v4-flash（享受该模型免费额度）
-            # 兼容模式同时支持通义/DeepSeek/Kimi 等托管模型, 更换模型只需改 model 名
+            # 模型 / 端点均由配置注入(见 core/config.py), 默认走百炼兼容模式
+            # 切换模型: 在 .env 设置 LLM_MODEL 即可(如 qwen-plus / kimi-k2-0905-preview / deepseek-v3)
             self.llm = ChatOpenAI(
-                model="deepseek-v4-flash-0731",
+                model=config.LLM_MODEL,
                 api_key=api_key,
-                base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+                base_url=config.LLM_BASE_URL,
                 streaming=True  # 启用流式输出
             )
+            # 启动日志打印当前模型, 便于确认切换是否生效
+            config.logger.info(
+                f"LLM initialized: model={config.LLM_MODEL}, base_url={config.LLM_BASE_URL}")
 
         # 优化后的 Prompt 模板
         # 支持对话上下文和知识库上下文

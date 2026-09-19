@@ -18,6 +18,14 @@ class ConfigManager:
         self.EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "dashscope")
         # 本地Embedding模型名称（仅当EMBEDDING_MODEL=local时生效）
         self.LOCAL_EMBEDDING_MODEL = os.getenv("LOCAL_EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
+
+        # LLM（对话模型）Configuration —— 走百炼 OpenAI 兼容端点
+        # 同一端点兼容通义 / DeepSeek / Kimi 等托管模型, 换模型只需改 LLM_MODEL, 无需动代码
+        self.LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4-flash-0731")
+        self.LLM_BASE_URL = os.getenv(
+            "LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        # 切到其他厂商时可单独配 LLM_API_KEY; 不配则沿用 DASHSCOPE_API_KEY(向后兼容)
+        self.LLM_API_KEY = os.getenv("LLM_API_KEY") or self.DASHSCOPE_API_KEY
         
         # Milvus Configuration
         self.MILVUS_HOST = os.getenv("MILVUS_HOST", "localhost")
@@ -102,6 +110,8 @@ class ConfigManager:
             "VECTOR_STORE_COLLECTION_NAME": self.VECTOR_STORE_COLLECTION_NAME,
             "EMBEDDING_MODEL": self.EMBEDDING_MODEL,
             "LOCAL_EMBEDDING_MODEL": self.LOCAL_EMBEDDING_MODEL,
+            "LLM_MODEL": self.LLM_MODEL,
+            "LLM_BASE_URL": self.LLM_BASE_URL,
             "RERANKER_TYPE": self.RERANKER_TYPE,
             "FAITHFULNESS_JUDGE_ENABLED": self.FAITHFULNESS_JUDGE_ENABLED,
             "FAITHFULNESS_JUDGE_SAMPLE_RATE": self.FAITHFULNESS_JUDGE_SAMPLE_RATE,
