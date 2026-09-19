@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.demo.aiknowledge.dto.DashboardStats;
 import com.demo.aiknowledge.entity.DocViewLog;
 import com.demo.aiknowledge.entity.KnowledgeDoc;
+import com.demo.aiknowledge.entity.Message;
 import com.demo.aiknowledge.entity.QaLog;
 import com.demo.aiknowledge.entity.QaUnanswered;
 import com.demo.aiknowledge.entity.User;
@@ -31,6 +32,8 @@ public class DashboardServiceImpl implements DashboardService {
     private QaUnansweredMapper qaUnansweredMapper;
     @Autowired
     private DocViewLogMapper docViewLogMapper;
+    @Autowired
+    private MessageMapper messageMapper;
 
     @Override
     public DashboardStats getStats() {
@@ -110,6 +113,19 @@ public class DashboardServiceImpl implements DashboardService {
                 .groupBy("date")
                 .orderByAsc("date");
         stats.setQuestionTrends(qaLogMapper.selectMaps(trendWrapper));
+
+        // 6. 提问类型分布(仪表盘饼图用)
+        // 为什么查 message 而不是 qa_log: qa_log 表没有 task_type 列, 类型信息只存在于 message。
+        // 为什么限定 role='assistant': 用户消息的 task_type 恒为 unknown, 真实类型由 AI 回复携带。
+        // 为什么排除 unknown: 早期版本未写入类型(现存 84 条), 让"未分类"占据饼图主体没有洞察价值。
+        // 别名直接取 name/value: 前端 ECharts 的饼图数据格式就是 {name, value}, 在 SQL 层对齐少一层转换。
+        QueryWrapper<Message> typeWrapper = new QueryWrapper<>();
+        typeWrapper.select("task_type as name", "count(*) as value")
+                .eq("role", "assistant")
+                .ne("task_type", "unknown")
+                .groupBy("task_type")
+                .orderByDesc("value");
+        stats.setTaskTypeDistribution(messageMapper.selectMaps(typeWrapper));
 
         return stats;
     }

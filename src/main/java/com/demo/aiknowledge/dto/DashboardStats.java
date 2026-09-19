@@ -15,4 +15,6 @@ public class DashboardStats {
     private List<Map<String, Object>> topQuestions;
     private List<Map<String, Object>> unansweredQuestions;
     private List<Map<String, Object>> questionTrends;
+    /** 提问类型分布(饼图用): [{name: task_type, value: 数量}] */
+    private List<Map<String, Object>> taskTypeDistribution;
 }

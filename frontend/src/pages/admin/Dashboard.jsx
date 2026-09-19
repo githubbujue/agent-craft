@@ -3,6 +3,16 @@ import { getDashboardStats } from '../../api/dashboard';
 import * as echarts from 'echarts';
 import './Dashboard.css';
 
+// task_type → 可读名称(后端返回的是枚举串, 直接显示对用户不友好)
+const TASK_TYPE_LABELS = {
+  chitchat: '闲聊',
+  knowledge_qa: '知识问答',
+  reasoning: '深度推理',
+  admin_copilot: '管理助手',
+  knowledge_inspection: '知识巡检',
+  unknown: '未分类',
+};
+
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -49,44 +59,71 @@ export default function Dashboard() {
     chartInstances.current.forEach(chart => chart.dispose());
     chartInstances.current = [];
 
-    // 1. 3D Pie Chart (Simulated)
+    // 1. 提问类型分布(饼图 —— 只表达"部分-整体"关系)
+    //    改前是"用户数 / 文档数 / 提问数 / 命中率"混在一起: 前三者量纲是"个"、命中率是"%"，
+    //    相加无业务含义 → 算出的占比无法解读；且与上方指标卡片完全重复。
+    //    现改为按 task_type 统计占比 —— 这才是真正的构成关系，还能看出用户都在问什么类型。
     if (pieChartRef.current) {
         const pieChart = echarts.init(pieChartRef.current);
+        const typeData = (stats.taskTypeDistribution || []).map(item => ({
+            name: TASK_TYPE_LABELS[item.name] || item.name,
+            value: Number(item.value) || 0
+        }));
+        const hasData = typeData.length > 0;
         const optionPie = {
             title: {
-                text: '核心指标分布',
+                text: '提问类型分布',
                 left: 'center',
-                textStyle: { fontSize: 16 }
+                top: 8,
+                textStyle: { fontSize: 15, fontWeight: 600 }
             },
             tooltip: {
                 trigger: 'item',
-                formatter: '{b}: {c} ({d}%)'
+                formatter: '{b}: {c} 条 ({d}%)',   // 占比在"同质构成"下才有意义
+                confine: true,
+                // 固定在环形中心 —— 跟随鼠标时 tooltip 会盖住扇区和外侧标签,
+                // 而环心本来就是空的, 是环形图最自然的提示位置
+                position: (point, params, dom, rect, size) => [
+                    size.viewSize[0] / 2 - size.contentSize[0] / 2,
+                    size.viewSize[1] / 2 - size.contentSize[1] / 2
+                ]
             },
             legend: {
-                bottom: '0%',
-                left: 'center'
+                bottom: 2,
+                left: 'center',
+                itemWidth: 10,
+                itemHeight: 10,
+                itemGap: 14,
+                textStyle: { fontSize: 12, color: '#666' }
             },
             series: [
                 {
-                    name: '统计',
+                    name: '提问类型',
                     type: 'pie',
-                    radius: ['30%', '60%'], // Donut shape for better look
-                    center: ['50%', '50%'],
-                    roseType: 'area', // Rose chart looks more "3D" and handles scale differences better
+                    // 顶部只需容纳标题一行、底部留给图例, 故半径放大到接近垂直空间上限;
+                    // 圆心略高于几何中心, 让上下两侧的标签都有余地(不压标题、不碰图例)
+                    radius: ['42%', '58%'],
+                    center: ['50%', '53%'],
+                    // 刻意不用 roseType: 玫瑰图用于"同类项之间比大小"，
+                    // 饼图用于"看占比"，混用会让扇区面积失真(旧代码正是靠它掩盖量纲冲突)
                     itemStyle: {
-                        borderRadius: 8,
-                        shadowBlur: 20,
-                        shadowColor: 'rgba(0, 0, 0, 0.3)'
+                        borderRadius: 6,
+                        borderColor: '#fff',
+                        borderWidth: 2
                     },
-                    data: [
-                        { value: stats.userCount || 0, name: '用户数' },
-                        { value: stats.docCount || 0, name: '文档数' },
-                        { value: stats.qaCount || 0, name: '提问数' },
-                        // For Hit Rate, we use the value directly. 
-                        // Note: If hitRate is 95%, value is 95. If count is 1000, this slice is small.
-                        // But using 'roseType: area' helps visualize small values better.
-                        { value: stats.hitRate ? Math.round(stats.hitRate) : 0, name: 'AI命中率(%)' }
-                    ]
+                    label: {
+                        formatter: '{b}\n{d}%',
+                        fontSize: 13,
+                        lineHeight: 18,
+                        color: '#555'
+                    },
+                    // 引导线拉长: 文字离扇区更远, 不再挤在一起
+                    labelLine: {
+                        length: 16,
+                        length2: 24,
+                        smooth: true
+                    },
+                    data: hasData ? typeData : [{ name: '暂无数据', value: 1, itemStyle: { color: '#f0f0f0' } }]
                 }
             ]
         };
