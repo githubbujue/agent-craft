@@ -85,9 +85,12 @@ CREATE TABLE `admin_message` (
   `content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '??????',
   `sources` mediumtext COLLATE utf8mb4_unicode_ci COMMENT '参考来源（JSON格式）',
   `task_type` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT 'unknown' COMMENT '任务类型（chitchat/knowledge_qa/admin_copilot/knowledge_inspection/unknown）',
+  `feedback_type` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '反馈类型（like/dislike）',
+  `feedback_time` datetime DEFAULT NULL COMMENT '反馈时间',
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '消息发送时间',
   PRIMARY KEY (`id`),
-  KEY `idx_conversation_id` (`conversation_id`)
+  KEY `idx_conversation_id` (`conversation_id`),
+  KEY `idx_feedback_type` (`feedback_type`)
 ) ENGINE=InnoDB AUTO_INCREMENT=59 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='管理员消息表';
 /*!40101 SET character_set_client = @saved_cs_client */;
 

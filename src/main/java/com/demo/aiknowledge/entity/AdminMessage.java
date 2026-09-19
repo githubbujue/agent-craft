@@ -16,5 +16,7 @@ public class AdminMessage {
     private String content;
     private String sources;
     private String taskType;
+    private String feedbackType;        // 反馈类型（like/dislike）
+    private LocalDateTime feedbackTime; // 反馈时间
     private LocalDateTime createTime;
 }

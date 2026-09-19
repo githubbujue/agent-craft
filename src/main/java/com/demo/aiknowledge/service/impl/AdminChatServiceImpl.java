@@ -309,12 +309,13 @@ public class AdminChatServiceImpl implements AdminChatService {
         }
         SecurityUtils.checkOwnership(conversation.getAdminId());
 
-        // 已知缺口（如实记录, 未虚假修复）: admin_message 表没有 feedback 字段,
-        // 管理端反馈在数据模型层尚未实现, 因此此处无法真正落库。
-        // 原实现会顺手 updateById 刷新 createTime（把"更新时间"写进创建时间, 属误操作）,
-        // 这里不再写库, 仅记录日志, 等管理端反馈功能立项时再补字段。
-        log.warn("Admin feedback not persisted (admin_message has no feedback column): messageId={}, type={}",
-                messageId, feedbackType);
+        // 落库反馈(与用户端 ChatServiceImpl.submitFeedback 保持一致的做法):
+        // 写入 feedback_type / feedback_time 后返回, 保证前端乐观更新与刷新读库的结果一致。
+        message.setFeedbackType(feedbackType);
+        message.setFeedbackTime(LocalDateTime.now());
+        adminMessageMapper.updateById(message);
+
+        log.info("Admin feedback recorded: messageId={}, type={}", messageId, feedbackType);
         return message;
     }
 
