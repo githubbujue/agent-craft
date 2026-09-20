@@ -337,21 +337,38 @@ public class AiServiceImpl implements AiService {
                 "[AI Stream]", onEvent);
     }
 
-    @Override
-    public void askStreamForAdmin(String question, String context, Long adminId,
-                                  Consumer<Map<String, Object>> onEvent) {
-        // 与 askForAdmin（同步链路）请求体保持一致：is_admin=true + username=admin_<id>
+    /**
+     * 构建管理端调用 Python 问答接口的请求体 —— 同步 askForAdmin() 与流式
+     * askStreamForAdmin() 共用。
+     *
+     * <p>为什么抽出来：与用户端的 {@link #buildAiRequestBody} 同理，参数必须两边一致。
+     * 此前两个方法各自拼请求体，结果流式版传了 user_id、同步版漏了 —— 管理端走同步链路时
+     * {@code agent_run.user_id} 恒为 NULL，执行记录无法按用户筛选。
+     * 这类"复制粘贴两份、改一份忘一份"的问题在本项目已出现过一次（conversation_id 断链），
+     * 故同样收敛为单一事实来源。
+     *
+     * <p>刻意不传 conversation_id：管理端会话表(admin_conversation)与用户会话表
+     * (conversation)主键各自独立，透传会共用 Python 侧 Redis 记忆键，造成两侧对话记忆串号。
+     * 管理端上下文仍由调用方拼好随 context 传入。
+     */
+    private Map<String, Object> buildAdminRequestBody(String question, String context, Long adminId) {
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("question", question);
         requestBody.put("context", context);
         requestBody.put("is_admin", true);
         requestBody.put("username", "admin_" + adminId);
-        // 透传管理员ID, 供 Python 侧执行留痕(agent_run.user_id)
+        // 透传管理员ID，供 Python 侧执行留痕(agent_run.user_id)
         if (adminId != null) {
             requestBody.put("user_id", String.valueOf(adminId));
         }
-        // 刻意不传 conversation_id（详见 AiService#askStreamForAdmin 注释）
-        executeEventStream(requestBody, "[Admin AI Stream]", onEvent);
+        return requestBody;
+    }
+
+    @Override
+    public void askStreamForAdmin(String question, String context, Long adminId,
+                                  Consumer<Map<String, Object>> onEvent) {
+        executeEventStream(buildAdminRequestBody(question, context, adminId),
+                "[Admin AI Stream]", onEvent);
     }
 
     /**
@@ -463,11 +480,8 @@ public class AiServiceImpl implements AiService {
         Map<String, Object> response = new HashMap<>();
 
         try {
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("question", question);
-            requestBody.put("context", context);
-            requestBody.put("is_admin", true);
-            requestBody.put("username", "admin_" + adminId);
+            // 与流式链路共用同一份请求体（含 user_id 透传）—— 详见 buildAdminRequestBody 注释
+            Map<String, Object> requestBody = buildAdminRequestBody(question, context, adminId);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
