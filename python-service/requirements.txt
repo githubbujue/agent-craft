@@ -1,3 +1,22 @@
+# ============================================================================
+# 本文件由 pip freeze 生成, 是完整的依赖树(含传递依赖), 不代表"直接使用的库"
+#
+# ⚠️ 特别说明: 下面这几个 langgraph 相关包是【传递依赖】
+#    langgraph / langgraph-checkpoint / langgraph-prebuilt / langgraph-sdk
+#    它们由 langchain-classic / langchain-openai 等间接拉入,
+#    业务代码中对 langgraph 的引用次数为 0 —— 项目的 Agent 编排层全部是手写实现
+#    (见 agent/state.py, agent/planner.py, agent/executor.py, tools/registry.py)
+#
+# 实际直接使用的 LangChain 组件:
+#    langchain_openai.ChatOpenAI                  LLM 调用
+#    langchain_core.prompts.PromptTemplate        Prompt 模板
+#    langchain_core.output_parsers.*              输出解析
+#    langchain_core.documents.Document            文档对象
+#    langchain_community.document_loaders.*       文档加载
+#    langchain_text_splitters.*                   文本切分
+#    langchain_community.embeddings.*             Embedding
+#    langchain_community.vectorstores.*           向量库封装
+# ============================================================================
 --extra-index-url https://download.pytorch.org/whl/cpu
 aiohappyeyeballs==2.7.1
 aiohttp==3.14.3

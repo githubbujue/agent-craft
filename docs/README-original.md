@@ -358,7 +358,7 @@ npm run dev
 - 用户端：http://localhost:3000/login （手机验证码注册登录，未配置短信时为模拟模式）
 - 管理端：http://localhost:3000/admin/login（`admin` / `admin123`）
 
-> 项目跑通后，建议按 [学习指南](AgentCraft学习指南.md#5-分阶段学习路线) 的分阶段路线开始学习。
+> 项目跑通后，建议按 [学习指南](../AgentCraft学习指南.md#5-分阶段学习路线) 的分阶段路线开始学习。
 
 ***
 
@@ -366,15 +366,54 @@ npm run dev
 
 > 以下话术可直接用于简历项目经历描述，面试时围绕每条展开讲解即可。
 
-**1. 负责五层可编排 Agent 架构设计与实现**，将 AI 服务拆分为 Interface、Orchestrator、Tool、Memory、Evaluation 五层，实现意图识别→问题改写→检索→充分性判断→答案生成的完整工作流；通过 StepType 枚举 + Planner 动态规划步骤，支持任务编排与独立扩展，runId/traceId 实现全链路追踪。
+### ⚠️ 写简历前必读：技术边界说明
+
+**这个项目是"编排层自研 + 基础设施用 LangChain"，不是"整个技术栈都是自研"。**
+写简历时务必守住这条边界 —— 面试官手上就有你的 `requirements.txt`，说错一句后面的内容全部会被怀疑。
+
+| 层次 | 实现方式 | 涉及文件 |
+|------|---------|---------|
+| **Agent 编排层**（状态机 / 规划器 / 执行器 / 工具注册 / 事件总线 / 评估层 / 全链路留痕） | ✅ **全部自己实现**，未使用 LangGraph 等 Agent 编排框架 | `agent/state.py` `agent/planner.py` `agent/executor.py` `agent/events.py` `tools/registry.py` `core/run_recorder.py` `core/retrieval_evaluator.py` `core/faithfulness_judge.py` |
+| **基础设施层**（LLM 调用 / Prompt 模板 / 输出解析 / 文档加载 / 文本切分 / 向量库封装 / Embedding） | 📦 **使用 LangChain 成熟组件** | `core/llm.py` `core/parser.py` `core/text_splitter.py` `core/vector_store.py` |
+
+**为什么这样分工**：编排逻辑是理解 Agent 的关键，值得自己写；基础设施已有成熟标准，重复造轮子没有收益。这也是实际工程中的常规做法 —— 把精力放在业务价值最高的地方。
+
+**容易被追问的三个坑（务必避开）**：
+
+| ❌ 不要写 | 为什么 |
+|----------|--------|
+| "**基于 LangGraph** 搭建 Agent 工作流" | 全项目 `langgraph` 引用次数为 **0**。`requirements.txt` 里那个是 `langchain-classic` / `langgraph-prebuilt` 的**传递依赖**，不是你用的 |
+| "**全部手写实现** / 不依赖任何框架" | 状态机是你写的，但 LLM 调用、Prompt、解析、文档加载、切分、向量库封装**都是 LangChain 的** |
+| "前端 **TypeScript**" | 前端是纯 JavaScript，仓库**没有** `tsconfig.json`，README 自己也把"无 TypeScript"列为已知问题 |
+
+**准确的说法**：
+
+> 我依赖 LangChain 提供的**基础组件**（LLM 调用、Prompt、解析、文档加载、切分、向量库封装）；
+> 但 Agent 的**编排层**是我自己实现的状态机 —— 没有用 LangGraph 这类编排框架。
+> 我的判断是：**编排逻辑自己写（这是理解 Agent 的关键），基础设施用现成的（这是工程效率）。**
+
+**这个说法比"全部自研"更站得住**：能划清"哪部分是我写的、哪部分我用了现成的"，本身就是工程判断力的体现。
+
+---
+
+### 可直接用于简历的描述
+
+**1. 负责五层可编排 Agent 架构设计与实现**，将 AI 服务拆分为 Interface、Orchestrator、Tool、Memory、Evaluation 五层，实现意图识别→问题改写→检索→充分性判断→答案生成的完整工作流；**自行实现状态机（AgentState + StepType）、规划器（Planner）、执行器（Executor）与工具注册中心（ToolRegistry，含超时/重试）**，未依赖 LangGraph 等编排框架；通过 StepType 枚举 + Planner 动态规划步骤，支持任务编排与独立扩展，runId/traceId 实现全链路追踪。
 
 **2. 设计并实现多 Agent 协作机制**，Router Agent 基于统一意图分类器（LLM优先 + 关键词Fallback）识别任务类型并分发至对应 Agent，Retrieval Agent 专精 Query Rewrite + 多路召回 + Rerank + Citation 全链路检索，Ops Agent 负责知识缺口分析与运营报告生成；各 Agent 独立可扩展，共享状态协同工作。
 
 **3. 构建统一 Tool Registry 工具体系**，将知识检索、OCR、文档摘要、对话记忆等 AI 能力抽象为标准 Tool，定义输入/输出 Schema、超时、重试与权限元数据；通过单例 ToolRegistry 实现工具注册/查找/调用，支持单工具执行与多工具链编排，基于 ThreadPoolExecutor 实现超时控制。
 
-**4. 设计并实现多级缓存架构**，Caffeine 本地缓存 + Redis 分布式缓存两级架构，实现缓存穿透/雪崩防护机制，热点数据毫秒级响应；通过 @Async 异步处理提升系统吞吐量。
+**4. 设计并实现多级缓存架构**，Caffeine 本地缓存 + Redis 分布式缓存两级架构，配合过期策略与缓存命中率统计（CacheStats），实现缓存穿透/雪崩防护机制，热点数据毫秒级响应；通过 @Async 异步处理提升系统吞吐量。
 
-**5. 实现 RAG 全链路知识库系统**，支持多格式文档（PDF/Word/TXT）自动解析、向量化存储至 Milvus，用户提问时通过语义检索 + Rerank 重排序精准召回相关文档，生成带引用来源的结构化答案，支持在线预览/下载。
+**5. 实现 RAG 全链路知识库系统**，支持多格式文档（PDF/Word/TXT/Markdown）自动解析、语义切分与向量化入库（**FAISS / Milvus 双向量库可配置切换**），用户提问时通过语义检索 + Rerank 重排序精准召回相关文档，生成带引用来源的结构化答案，支持在线预览/下载。
+
+**6. 构建评估层与全链路可观测性（自建迷你 LangSmith）**，评估层分三部分：检索充分性（规则判定，不充分时自动降级并标注）、答案质量（规则版零成本，随轨迹落库）、内容忠实度（LLM-as-judge，**后台线程异步评判，不阻塞主链路**，输出 faithfulness 分数与无依据陈述清单）；通过自建事件总线实现业务零侵入埋点，每次请求落 8-9 步毫秒级轨迹至 `agent_run`/`agent_step` 双表，管理端可视化耗时瀑布与失败定位，遥测异常与主流程隔离。
+
+**7. 检索质量治理**，针对 FAISS 返回未归一化 L2 距离导致相似度阈值失效的问题，在检索层统一转换为真实余弦相似度（0-1）；基于实测分布校准阈值（库内 0.51-0.63 / 库外 0.25-0.35 → 检索硬阈值 0.45），检索与重排两套分数体系分离存储，杜绝语义混用。
+
+> **使用建议**：按目标岗位挑选 4-5 条即可，**第 1、6、7 条是这个项目区别于普通 RAG 项目的地方**，最值得放进去。
+> 第 6 条尤其容易被追问 —— 因为这属于"工程化能力"，多数学生项目没有做可观测性和评估层。
 
 ***
 
