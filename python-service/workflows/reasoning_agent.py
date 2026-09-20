@@ -1,11 +1,12 @@
 from typing import Dict, Any, Optional, List
 from core.llm import LLMService
 from core.vector_store import vector_store
-from core.retrieval_evaluator import evaluate_retrieval, evaluate_answer
+from core.retrieval_evaluator import evaluate_retrieval, evaluate_answer, publish_step
 from core.faithfulness_judge import trigger_faithfulness_judge
 from tools.registry import tool_registry
 import logging
 import json
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,35 @@ class ReasoningAgent:
         logger.info(f"[ReasoningAgent] Starting reasoning for: {question[:50]}...")
 
         try:
+            # 0. 读取会话记忆并入上下文
+            #    L3 同样需要多轮记忆: 复杂问题里大量出现指代("它们的区别呢"),
+            #    不读记忆会导致分解出的子问题丢失指代对象。
+            #    (此前 L3 只写不读, 与 L1/L2、闲聊不一致 —— 属于遗漏而非设计)
+            conversation_history = ""
+            if conversation_id and tool_registry.has_tool("conversation_memory_read"):
+                _mt0 = time.time()
+                try:
+                    history = tool_registry.invoke_tool(
+                        "conversation_memory_read",
+                        {"conversation_id": conversation_id, "limit": 10}
+                    )
+                    messages = history.get("messages", [])
+                    publish_step("memory_read", {
+                        "message_count": len(messages) if messages else 0,
+                        "compressed": history.get("compressed", False),
+                    }, duration_ms=(time.time() - _mt0) * 1000)
+                    if messages:
+                        conversation_history = self._format_history(messages)
+                        logger.info(f"[ReasoningAgent] Loaded {len(messages)} messages from memory"
+                                    f" (compressed: {history.get('compressed', False)})")
+                except Exception as e:
+                    logger.warning(f"[ReasoningAgent] Failed to read conversation memory: {e}")
+
+            full_context = context
+            if conversation_history:
+                full_context = (f"{context}\n\n{conversation_history}"
+                                if context else conversation_history)
+
             # Step 1：问题分解
             sub_questions = self._decompose_question(question)
             logger.info(f"[ReasoningAgent] Decomposed into {len(sub_questions)} sub-questions")
@@ -35,7 +65,7 @@ class ReasoningAgent:
                 all_docs.extend(docs)
                 # 评估层：每个子问题单独评估检索充分性（缺料推理是编造高发区）
                 sufficiency = evaluate_retrieval(docs, sub_q, chain="L3")
-                sub_answer = self._reason_sub_question(sub_q, docs, context)
+                sub_answer = self._reason_sub_question(sub_q, docs, full_context)
                 reasoning_steps.append({
                     "sub_question": sub_q,
                     "retrieval_sufficient": sufficiency.is_sufficient,
@@ -69,6 +99,7 @@ class ReasoningAgent:
 
             # 写入会话记忆
             if conversation_id and tool_registry.has_tool("conversation_memory_write"):
+                _wt0 = time.time()
                 try:
                     tool_registry.invoke_tool(
                         "conversation_memory_write",
@@ -78,6 +109,12 @@ class ReasoningAgent:
                         "conversation_memory_write",
                         {"conversation_id": conversation_id, "role": "assistant", "content": final_answer}
                     )
+                    # 留痕: 与 knowledge_qa_agent 保持一致 —— 否则轨迹里看不到"记忆写入",
+                    # 读/写两步只有一半可见, 排查时会误以为没写
+                    publish_step("memory_write", {
+                        "written": "user + assistant",
+                    }, duration_ms=(time.time() - _wt0) * 1000)
+                    logger.info(f"[ReasoningAgent] Saved conversation to memory")
                 except Exception as e:
                     logger.warning(f"[ReasoningAgent] Failed to write memory: {e}")
 
@@ -111,6 +148,28 @@ class ReasoningAgent:
                 "task_type": "reasoning",
                 "error": True
             }
+
+    def _format_history(self, messages: list) -> str:
+        """格式化对话历史为上下文字符串
+
+        与 knowledge_qa_agent / chitchat_agent 的实现保持一致 ——
+        记忆格式化必须同构, 否则同一段历史在不同链路里呈现给 LLM 的样子不同。
+        """
+        if not messages:
+            return ""
+
+        formatted = []
+        for msg in messages:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            if role == "system":
+                formatted.append(content)
+            elif role == "user":
+                formatted.append(f"用户: {content}")
+            elif role == "assistant":
+                formatted.append(f"AI: {content}")
+
+        return "\n".join(formatted)
 
     def _decompose_question(self, question: str) -> List[str]:
         """将复杂问题分解为子问题"""
