@@ -204,7 +204,7 @@ export default function KnowledgeManagement() {
                   <td>
                     {getStatusBadge(doc.status)}
                     {doc.status === 'FAILED' && doc.errorMessage && (
-                      <div style={{ fontSize: '12px', color: '#f44336', marginTop: '4px' }}>
+                      <div style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '4px' }}>
                         {doc.errorMessage.length > 50 
                           ? doc.errorMessage.substring(0, 50) + '...' 
                           : doc.errorMessage

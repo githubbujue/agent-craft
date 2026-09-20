@@ -104,7 +104,7 @@
 }
 
 .md-body a {
-  color: #1a73e8;
+  color: var(--accent-primary);
   text-decoration: none;
 }
 

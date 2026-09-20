@@ -1,14 +1,21 @@
+/* 登录 / 注册页 —— 色值统一取自 src/styles/tokens.css
+
+   改造前: 背景是青/蓝紫/紫三段渐变, 8 个粒子分别是青、紫、橙、绿、蓝、粉、橙,
+   再加彩色发光与青粉渐变流光 —— 一屏出现七种色相, 与深松绿主色毫无关系。
+   现在统一为"中性浅底 + 深松绿同色系的低饱和点缀": 色相只有一个, 靠透明度做层次。 */
+
 .auth-container {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #e0f7fa 0%, #e8eaf6 50%, #f3e5f5 100%);
+  background: linear-gradient(160deg, #f7f9fb 0%, #eef4f1 55%, #e8f0ec 100%);
   position: relative;
   overflow: hidden;
   padding: 20px;
 }
 
+/* 两团极淡的同色相光晕, 提供一点纵深(取代原来的三色渐变) */
 .auth-container::before {
   content: '';
   position: absolute;
@@ -17,18 +24,12 @@
   right: 0;
   bottom: 0;
   background:
-    radial-gradient(ellipse at 10% 20%, rgba(0, 188, 212, 0.2) 0%, transparent 40%),
-    radial-gradient(ellipse at 90% 80%, rgba(156, 39, 176, 0.15) 0%, transparent 40%),
-    radial-gradient(ellipse at 50% 50%, rgba(255, 138, 101, 0.1) 0%, transparent 50%);
+    radial-gradient(ellipse at 12% 18%, rgba(31, 111, 92, 0.10) 0%, transparent 42%),
+    radial-gradient(ellipse at 88% 82%, rgba(31, 111, 92, 0.07) 0%, transparent 45%);
   pointer-events: none;
-  animation: bgShift 15s ease-in-out infinite alternate;
 }
 
-@keyframes bgShift {
-  0% { opacity: 0.8; transform: scale(1); }
-  100% { opacity: 1; transform: scale(1.1); }
-}
-
+/* 细网格: 用统一的松绿灰, 去掉原来的青/粉色点 */
 .auth-container::after {
   content: '';
   position: absolute;
@@ -36,9 +37,7 @@
   left: -50%;
   right: -50%;
   bottom: -50%;
-  background-image:
-    radial-gradient(circle at 20% 30%, rgba(0, 150, 136, 0.1) 2px, transparent 2px),
-    radial-gradient(circle at 80% 70%, rgba(233, 30, 99, 0.08) 2px, transparent 2px);
+  background-image: radial-gradient(circle at 20% 30%, rgba(31, 111, 92, 0.07) 2px, transparent 2px);
   background-size: 80px 80px;
   pointer-events: none;
   animation: gridFloat 30s linear infinite;
@@ -57,9 +56,10 @@
   100% { transform: translate(0, 0) scale(1); opacity: 0.8; }
 }
 
+/* 发光幅度大幅收敛 —— 原来的 8px/20px → 35px 双光环已经很"迪斯科"了 */
 @keyframes particleGlow {
-  0%, 100% { box-shadow: 0 0 8px currentColor, 0 0 20px currentColor; }
-  50% { box-shadow: 0 0 15px currentColor, 0 0 35px currentColor; }
+  0%, 100% { box-shadow: 0 0 6px currentColor; }
+  50% { box-shadow: 0 0 12px currentColor; }
 }
 
 .auth-container .particle {
@@ -72,14 +72,15 @@
   z-index: 1;
 }
 
-.auth-container .particle:nth-child(1) { top: 12%; left: 8%; background: #00bcd4; color: #00bcd4; animation-delay: 0s, 0s; animation-duration: 8s, 2.5s; }
-.auth-container .particle:nth-child(2) { top: 20%; left: 88%; background: #9c27b0; color: #9c27b0; animation-delay: 1s, 0.5s; animation-duration: 10s, 3s; }
-.auth-container .particle:nth-child(3) { top: 75%; left: 12%; background: #ff7043; color: #ff7043; animation-delay: 2s, 1s; animation-duration: 9s, 2.8s; }
-.auth-container .particle:nth-child(4) { top: 85%; left: 85%; background: #4caf50; color: #4caf50; animation-delay: 0.5s, 1.5s; animation-duration: 11s, 3.2s; }
-.auth-container .particle:nth-child(5) { top: 50%; left: 3%; background: #2196f3; color: #2196f3; animation-delay: 3s, 0.8s; animation-duration: 7s, 2.6s; }
-.auth-container .particle:nth-child(6) { top: 8%; left: 55%; background: #e91e63; color: #e91e63; animation-delay: 1.5s, 1.2s; animation-duration: 12s, 2.9s; }
-.auth-container .particle:nth-child(7) { top: 65%; left: 92%; background: #ff9800; color: #ff9800; animation-delay: 2.5s, 0.3s; animation-duration: 8.5s, 3.1s; }
-.auth-container .particle:nth-child(8) { top: 40%; left: 50%; background: #00bcd4; color: #00bcd4; animation-delay: 0.8s, 1.8s; animation-duration: 10.5s, 2.7s; }
+/* 全部粒子统一到松绿同色系, 靠深浅拉开层次 */
+.auth-container .particle:nth-child(1) { top: 12%; left: 8%;  background: #1f6f5c; color: #1f6f5c; animation-delay: 0s, 0s;     animation-duration: 8s, 2.5s; }
+.auth-container .particle:nth-child(2) { top: 20%; left: 88%; background: #2f8f5b; color: #2f8f5b; animation-delay: 1s, 0.5s;   animation-duration: 10s, 3s; }
+.auth-container .particle:nth-child(3) { top: 75%; left: 12%; background: #4e8f7c; color: #4e8f7c; animation-delay: 2s, 1s;     animation-duration: 9s, 2.8s; }
+.auth-container .particle:nth-child(4) { top: 85%; left: 85%; background: #17594a; color: #17594a; animation-delay: 0.5s, 1.5s; animation-duration: 11s, 3.2s; }
+.auth-container .particle:nth-child(5) { top: 50%; left: 3%;  background: #3d8a72; color: #3d8a72; animation-delay: 3s, 0.8s;   animation-duration: 7s, 2.6s; }
+.auth-container .particle:nth-child(6) { top: 8%;  left: 55%; background: #2f8f5b; color: #2f8f5b; animation-delay: 1.5s, 1.2s; animation-duration: 12s, 2.9s; }
+.auth-container .particle:nth-child(7) { top: 65%; left: 92%; background: #1f6f5c; color: #1f6f5c; animation-delay: 2.5s, 0.3s; animation-duration: 8.5s, 3.1s; }
+.auth-container .particle:nth-child(8) { top: 40%; left: 50%; background: #4e8f7c; color: #4e8f7c; animation-delay: 0.8s, 1.8s; animation-duration: 10.5s, 2.7s; }
 
 @keyframes lineDrift {
   0% { transform: translateX(-100%) rotate(var(--angle)); opacity: 0; }
@@ -91,22 +92,25 @@
 .particle-line {
   position: absolute;
   height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(0, 150, 136, 0.6), rgba(233, 30, 99, 0.6), transparent);
+  background: linear-gradient(90deg, transparent, rgba(31, 111, 92, 0.5), transparent);
   transform-origin: left center;
   pointer-events: none;
   opacity: 0;
   animation: lineDrift 12s linear infinite;
 }
 
-.particle-line:nth-child(9) { top: 25%; --angle: 25deg; animation-delay: 0s; }
+.particle-line:nth-child(9)  { top: 25%; --angle: 25deg;  animation-delay: 0s; }
 .particle-line:nth-child(10) { top: 55%; --angle: -15deg; animation-delay: 3s; }
-.particle-line:nth-child(11) { top: 70%; --angle: 35deg; animation-delay: 6s; }
+.particle-line:nth-child(11) { top: 70%; --angle: 35deg;  animation-delay: 6s; }
 .particle-line:nth-child(12) { top: 40%; --angle: -30deg; animation-delay: 9s; }
 
 .auth-card {
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  position: relative;
+  z-index: 2;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   padding: 40px;
   width: 100%;
   max-width: 400px;
@@ -116,7 +120,7 @@
   text-align: center;
   font-size: 28px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
   margin-bottom: 8px;
 }
 
@@ -124,7 +128,7 @@
   text-align: center;
   font-size: 20px;
   font-weight: 500;
-  color: #666;
+  color: var(--text-secondary);
   margin-bottom: 32px;
 }
 
@@ -138,11 +142,11 @@
 .auth-footer {
   text-align: center;
   margin-top: 24px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .auth-footer a {
-  color: #1890ff;
+  color: var(--accent-primary);
   text-decoration: none;
 }
 

@@ -1,4 +1,5 @@
-/* 评估看板 —— 仅补充 Dashboard.css 未覆盖的部分 */
+/* 评估看板 —— 仅补充 Dashboard.css 未覆盖的部分
+   色值统一取自 src/styles/tokens.css */
 
 .eval-charts-row {
   display: flex;
@@ -12,10 +13,11 @@
   /* min-width: 0 —— flex 子项默认 min-width:auto, 会被内容撑开,
      导致 ECharts 画布宽度计算异常(图表溢出容器)。这是 flex 的经典坑。 */
   min-width: 0;
-  background: #fff;
+  background: var(--bg-primary);
   padding: 15px;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
 }
 
 .eval-chart-box.narrow {
@@ -33,13 +35,13 @@
 }
 
 .score-badge.warn {
-  background-color: #fff7e6;
-  color: #fa8c16;
+  background-color: var(--warning-soft);
+  color: var(--warning);
 }
 
 .score-badge.danger {
-  background-color: #fff1f0;
-  color: #ff4d4f;
+  background-color: var(--danger-soft);
+  color: var(--danger);
 }
 
 /* 窄屏: 图表换行铺满, 避免三个图挤在一起看不清 */

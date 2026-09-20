@@ -1,0 +1,112 @@
+/* ========================================
+   全局设计令牌 (Design Tokens)
+   ========================================
+
+   为什么要有这个文件:
+     改造前, 同一个前端里混着四套色板 ——
+       Ant Design  (#1890ff / #52c41a / #ff4d4f / #fa8c16)  52 次
+       Fresh Green (#10b981 / #059669)                       6 次
+       Material    (#00bcd4)                                 4 次
+       亮青绿       (#4ecca3, 管理端侧栏选中态)
+     三套色板各有各的绿、各有各的蓝, 彼此无语义分工, 这才是"看起来乱"的根源。
+
+   使用原则(与用户端 Chat.css 一致):
+     1. 彩色只出现在三个地方 —— 主按钮 / 选中态 / 语义状态, 其余一律中性
+     2. 语义状态色成对使用: --success / --success-soft(主色 + 淡底)
+     3. 不要在本文件之外写死色值; 新增需求先看这里有没有现成令牌
+
+   命名约定:
+     --bg-*      背景(层次由 primary → secondary → tertiary 递进)
+     --text-*    文字(三级灰阶: 主 / 次 / 弱)
+     --accent-*  品牌强调(深松绿)
+     --success / --warning / --danger / --info  语义状态(附 -soft 淡底)
+     --sidebar-* 管理端深色侧栏专用
+   ======================================== */
+
+:root {
+  /* ---------- 背景: 中性灰阶 ---------- */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f4f6f9;
+  --bg-tertiary: #f0f2f5;
+  --bg-hover: #e9ecf1;
+  --bg-input: #ffffff;
+  --bg-page: #f4f6f9;            /* 页面底色(管理端主内容区) */
+  --bg-code: #fafbfc;            /* 代码 / 纯文本块底色 */
+
+  /* ---------- 文字: 三级灰阶 ---------- */
+  --text-primary: #14161a;
+  --text-secondary: #5c6370;
+  --text-muted: #9aa1ad;
+  --text-inverse: #ffffff;
+
+  /* ---------- 强调: 深松绿(仅用于主按钮与选中态) ---------- */
+  --accent-primary: #1f6f5c;
+  --accent-secondary: #17594a;
+  --accent-soft: #eaf3f0;
+  --accent-soft-hover: #dce9e4;   /* 淡强调底色的 hover(比 --accent-soft 深一档) */
+  --accent-gradient: linear-gradient(135deg, #1f6f5c 0%, #17594a 100%);
+
+  /* ---------- 边框 ---------- */
+  --border-color: #e6e8ec;       /* 细线分区(默认) */
+  --border-light: #d8dbe0;       /* 稍深, 用于控件描边 */
+  --border-strong: #c9ced6;      /* hover / focus 前的过渡 */
+
+  /* ---------- 语义状态: 主色 + 淡底成对 ---------- */
+  --success: #2f8f5b;
+  --success-soft: #eef7f1;
+  --success-light: #4fa472;       /* 渐变的浅端 */
+
+  --danger-strong: #a93226;       /* 危险色的 hover(比 --danger 再深一档) */
+
+  --warning: #b7791f;
+  --warning-soft: #fdf6e7;
+
+  --danger: #c0392b;
+  --danger-soft: #fdecea;
+  --danger-soft-hover: #f9dcd8;   /* 淡危险底色的 hover */
+
+  --info: #2b6cb0;
+  --info-soft: #eaf1f8;
+
+  /* 中性/未开始(用于"待执行""未知"这类无状态语义) */
+  --neutral: #5c6370;
+  --neutral-soft: #f0f2f5;
+
+  /* ---------- 管理端深色侧栏 ---------- */
+  /* 旧版是深蓝紫(#1a1a2e → #16213e)配亮青绿选中(#4ecca3) ——
+     与深松绿强调色属于两套色相。这里换成带一点绿相的近黑,
+     既压得住, 又和强调色同源。 */
+  --sidebar-bg: linear-gradient(180deg, #1a2622 0%, #121a17 100%);
+  --sidebar-text: rgba(255, 255, 255, 0.72);
+  --sidebar-text-strong: #ffffff;
+  --sidebar-text-muted: rgba(255, 255, 255, 0.55);
+  --sidebar-hover: rgba(255, 255, 255, 0.08);
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+
+  /* ---------- 阴影: 统一冷灰, 不用彩色投影 ---------- */
+  --shadow-sm: 0 1px 2px rgba(20, 22, 26, 0.05);
+  --shadow-md: 0 2px 10px rgba(20, 22, 26, 0.07);
+  --shadow-lg: 0 8px 28px rgba(20, 22, 26, 0.10);
+  --shadow-overlay: 0 4px 16px rgba(20, 22, 26, 0.15);
+
+  /* 输入框聚焦环: 强调色的低透明度版本(替代 Ant 的蓝色光晕) */
+  --focus-ring: 0 0 0 2px rgba(31, 111, 92, 0.12);
+
+  /* ---------- 遮罩 ---------- */
+  --overlay: rgba(20, 22, 26, 0.5);
+
+  /* ---------- 圆角梯度 ---------- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-pill: 24px;
+
+  /* ---------- 过渡 ---------- */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.2s ease;
+  --transition-smooth: 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ---------- 布局尺寸 ---------- */
+  --sidebar-width: 260px;
+  --header-height: 56px;
+}

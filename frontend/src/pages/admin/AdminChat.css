@@ -1,62 +1,79 @@
 /* ========================================
    Admin Chat Page Styles
    Embedded within admin layout
+
+   视觉规范与用户端 Chat.css 对齐 —— 同一套设计令牌, 同一套原则:
+     1. 彩色只出现在三个地方: 主按钮 / 选中态 / 语义状态, 其余一律中性
+     2. 用户消息用浅灰气泡, 不用强调色铺满(大块饱和色在长对话里持续抢注意力)
+     3. AI 消息无气泡纯排版(回答长且含 Markdown, 套外框会显得笨重局促)
+     4. 投影统一冷灰, 不用彩色投影; 靠 1px 细线分区
+   旧版是 "Fresh Green": #10b981/#059669 亮绿铺在背景、边框、气泡上,
+   还混了一个紫色 AI 头像(#8b5cf6) —— 两套色系打架, 整体偏"廉价"。
    ======================================== */
 
 .admin-chat-container {
+  /* 设计令牌已统一到 src/styles/tokens.css(全局引入), 本文件不再重复定义 */
+
+  /* 48px = 管理端顶栏高度, 容器嵌在 AdminDashboard 布局内, 不能直接用 100vh */
   height: calc(100vh - 48px);
   display: flex;
-  background-color: #ffffff;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 
+/* ========================================
+   Sidebar
+   ======================================== */
+
 .admin-chat-sidebar {
   width: 280px;
-  background-color: #f0fdf4;
+  background-color: var(--bg-secondary);
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #d1fae5;
+  border-right: 1px solid var(--border-color);
   flex-shrink: 0;
 }
 
 .admin-chat-header {
   padding: 16px;
-  border-bottom: 1px solid #d1fae5;
+  border-bottom: 1px solid var(--border-color);
 }
 
+/* 标题不是"强调对象", 用主文字色即可 —— 旧版染成 #059669 亮绿属于滥用强调色 */
 .admin-chat-header h2 {
   font-size: 1.1rem;
   font-weight: 600;
-  color: #059669;
+  color: var(--text-primary);
   margin: 0;
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
+/* 侧栏主操作用"白底 + 细边框": 浅灰侧栏上比彩色块更清爽 */
 .admin-new-chat-btn {
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 12px 16px;
-  background: #ecfdf5;
-  border: 1px solid #d1fae5;
-  border-radius: 10px;
-  color: #1f2937;
+  padding: 10px 16px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
-  transition: all 0.25s ease;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
   margin-top: 12px;
 }
 
 .admin-new-chat-btn:hover {
-  background: #dcfce7;
-  border-color: #a7f3d0;
+  background: var(--bg-hover);
+  border-color: var(--border-light);
 }
 
 .admin-conversation-list {
@@ -74,40 +91,38 @@
 }
 
 .admin-conversation-list::-webkit-scrollbar-thumb {
-  background: #d1fae5;
+  background: var(--border-color);
   border-radius: 3px;
 }
 
 .admin-conversation-item {
-  padding: 12px 14px;
-  margin-bottom: 4px;
-  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 2px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: space-between;
   font-size: 14px;
-  color: #4b5563;
-  transition: all 0.25s ease;
+  color: var(--text-secondary);
+  transition: background-color var(--transition-fast), color var(--transition-fast);
   position: relative;
-  border: 1px solid transparent;
   overflow: visible;
 }
 
 .admin-conversation-item:hover {
-  background-color: #ecfdf5;
-  color: #1f2937;
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
 }
 
+/* 选中态: 淡强调底 —— 唯一允许出现"彩色"的地方之一 */
 .admin-conversation-item.active {
-  background-color: rgba(16, 185, 129, 0.1);
-  color: #1f2937;
-  border-color: rgba(16, 185, 129, 0.2);
+  background-color: var(--accent-soft);
+  color: var(--text-primary);
 }
 
 .admin-conversation-item.pinned {
-  background-color: rgba(16, 185, 129, 0.05);
-  border-left: 3px solid #10b981;
+  background-color: var(--bg-tertiary);
 }
 
 .admin-conversation-info {
@@ -123,24 +138,24 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 14px;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .admin-conversation-time {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--text-muted);
 }
 
 .admin-menu-btn {
   opacity: 0;
   background: none;
   border: none;
-  color: #6b7280;
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 16px;
   padding: 4px 8px;
-  border-radius: 6px;
-  transition: all 0.15s ease;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--transition-fast), color var(--transition-fast);
   font-weight: 600;
   line-height: 1;
 }
@@ -151,18 +166,18 @@
 }
 
 .admin-menu-btn:hover {
-  background-color: #dcfce7;
-  color: #1f2937;
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .admin-context-menu {
   position: absolute;
   top: 100%;
   right: 8px;
-  background: #ecfdf5;
-  border: 1px solid #d1fae5;
-  border-radius: 10px;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
   z-index: 100;
   min-width: 140px;
   overflow: hidden;
@@ -172,42 +187,46 @@
 .admin-menu-item {
   padding: 10px 14px;
   font-size: 13px;
-  color: #4b5563;
+  color: var(--text-secondary);
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 10px;
-  border-radius: 6px;
-  transition: all 0.15s ease;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--transition-fast), color var(--transition-fast);
 }
 
 .admin-menu-item:hover {
-  background-color: #dcfce7;
-  color: #1f2937;
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .admin-menu-item.delete {
-  color: #ef4444;
+  color: var(--danger);
 }
 
 .admin-menu-item.delete:hover {
-  background-color: rgba(239, 68, 68, 0.1);
+  background-color: var(--danger-soft);
 }
+
+/* ========================================
+   Main Chat Area
+   ======================================== */
 
 .admin-chat-main {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background-color: #ffffff;
+  background-color: var(--bg-primary);
   overflow: hidden;
 }
 
 .admin-chat-header-bar {
-  padding: 16px 24px;
+  padding: 14px 24px;
   display: flex;
   align-items: center;
-  border-bottom: 1px solid #d1fae5;
-  background: rgba(255, 255, 255, 0.8);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-primary);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -217,7 +236,7 @@
   margin: 0;
   font-size: 15px;
   font-weight: 500;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .admin-messages-container {
@@ -237,13 +256,18 @@
 }
 
 .admin-messages-container::-webkit-scrollbar-thumb {
-  background: #d1fae5;
+  background: var(--border-color);
   border-radius: 4px;
 }
 
+/* 与用户端一致: 内容区限宽, 长回答不必让视线横跨整屏 */
 .admin-message-row {
   display: flex;
   margin-bottom: 16px;
+  width: 100%;
+  max-width: 768px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .admin-message-row.user {
@@ -255,9 +279,10 @@
 }
 
 .admin-message-content-wrapper {
-  max-width: 70%;
+  max-width: 82%;
   display: flex;
-  gap: 12px;
+  gap: 10px;
+  align-items: flex-start;
 }
 
 .admin-message-row.user .admin-message-content-wrapper {
@@ -265,40 +290,44 @@
 }
 
 .admin-message-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 15px;
   flex-shrink: 0;
 }
 
+/* 头像一律中性/淡强调 —— 旧版用亮绿 + 紫色渐变, 与整体色系打架 */
 .admin-message-row.user .admin-message-avatar {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: white;
+  background: var(--accent-soft);
+  color: var(--accent-primary);
 }
 
 .admin-message-row.assistant .admin-message-avatar {
-  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
-  color: white;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
 }
 
 .admin-message-body {
-  background: #f3f4f6;
-  padding: 12px 16px;
-  border-radius: 12px;
-  font-size: 14px;
-  line-height: 1.6;
-  color: #1f2937;
+  flex: 1;
+  padding: 2px 0;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--text-primary);
   position: relative;
+  word-break: break-word;
 }
 
+/* 用户消息: 浅灰气泡。不用强调色铺满 —— 长对话里大块饱和色会持续抢注意力 */
 .admin-message-row.user .admin-message-body {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: white;
-  border-radius: 12px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  padding: 10px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--border-color);
 }
 
 .admin-message-task-type {
@@ -316,13 +345,13 @@
 .admin-message-sources {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border-color);
 }
 
 .admin-message-sources h4 {
   font-size: 12px;
   font-weight: 600;
-  color: #6b7280;
+  color: var(--text-muted);
   margin: 0 0 8px 0;
 }
 
@@ -335,8 +364,20 @@
 .admin-message-sources li {
   margin-bottom: 4px;
   font-size: 13px;
-  color: #3b82f6;
+}
+
+/* 来源链接: 原先 JSX 用的类名与 CSS 对不上(message-sources / source-link),
+   这块一直处于"无样式"状态 —— 连手型光标都没有, 用户不知道可以点。
+   此处补齐, 并让类名与 JSX 一致。 */
+.admin-message-sources .source-link {
+  color: var(--accent-primary);
   cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.admin-message-sources .source-link:hover {
+  color: var(--accent-secondary);
+  text-decoration: underline;
 }
 
 .admin-message-feedback {
@@ -344,7 +385,7 @@
   gap: 8px;
   margin-top: 8px;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--transition-normal);
 }
 
 .admin-message-row:hover .admin-message-feedback {
@@ -355,24 +396,28 @@
   background: none;
   border: none;
   padding: 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 16px;
-  transition: all 0.15s ease;
+  transition: background-color var(--transition-fast);
 }
 
 .admin-feedback-btn:hover {
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: var(--bg-hover);
 }
 
 .admin-feedback-btn.active {
-  background-color: rgba(16, 185, 129, 0.1);
+  background-color: var(--accent-soft);
 }
+
+/* ========================================
+   Input Area
+   ======================================== */
 
 .admin-input-container {
   padding: 16px 20px;
-  border-top: 1px solid #d1fae5;
-  background: #ffffff;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-primary);
 }
 
 .admin-input-wrapper {
@@ -390,26 +435,27 @@
 .admin-chat-input-area textarea {
   flex: 1;
   padding: 12px 16px;
-  border: 1px solid #d1fae5;
-  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   font-size: 14px;
   resize: none;
   min-height: 44px;
   max-height: 150px;
   overflow-y: auto;
   font-family: inherit;
-  background: #f9fafb;
-  transition: all 0.2s ease;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  transition: border-color var(--transition-normal), background-color var(--transition-normal);
 }
 
 .admin-chat-input-area textarea:focus {
   outline: none;
-  border-color: #10b981;
-  background: #ffffff;
+  border-color: var(--accent-primary);
+  background: var(--bg-primary);
 }
 
 .admin-chat-input-area textarea::placeholder {
-  color: #9ca3af;
+  color: var(--text-muted);
 }
 
 .admin-input-buttons {
@@ -417,21 +463,22 @@
   gap: 8px;
 }
 
+/* 发送按钮 = 唯一的实心强调按钮, 引导力集中在这一处。
+   去掉彩色投影与 hover 位移(模板感的主要来源), 只做颜色变化 */
 .admin-send-btn {
   padding: 12px 20px;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  background: var(--accent-primary);
   border: none;
-  border-radius: 12px;
-  color: white;
+  border-radius: var(--radius-md);
+  color: #fff;
   font-size: 16px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color var(--transition-fast);
   flex-shrink: 0;
 }
 
 .admin-send-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.3);
+  background: var(--accent-secondary);
 }
 
 .admin-send-btn:disabled {
@@ -441,18 +488,22 @@
 
 .admin-stop-btn {
   padding: 12px 16px;
-  background: #f3f4f6;
-  border: 1px solid #d1d5db;
-  border-radius: 12px;
-  color: #374151;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
   font-size: 16px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color var(--transition-fast);
 }
 
 .admin-stop-btn:hover {
-  background: #e5e7eb;
+  background: var(--bg-hover);
 }
+
+/* ========================================
+   Welcome Screen
+   ======================================== */
 
 .admin-welcome-screen {
   flex: 1;
@@ -460,43 +511,60 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #6b7280;
+  padding: 40px;
+  text-align: center;
+  color: var(--text-secondary);
 }
 
+/* 克制的圆形淡底图标 —— 取代"渐变方块 + 彩色投影 + 上下浮动"三件套 */
 .admin-welcome-avatar {
-  font-size: 64px;
-  margin-bottom: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  margin-bottom: 20px;
 }
 
 .admin-welcome-screen h1 {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 600;
-  color: #1f2937;
-  margin: 0 0 8px 0;
+  color: var(--text-primary);
+  margin: 0 0 10px 0;
+  letter-spacing: 0.01em;
 }
 
 .admin-welcome-screen p {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--text-secondary);
   margin: 0 0 24px 0;
+  max-width: 420px;
+  line-height: 1.7;
 }
 
 .admin-start-btn {
-  padding: 12px 32px;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  padding: 11px 24px;
+  background: var(--accent-primary);
   border: none;
-  border-radius: 12px;
-  color: white;
+  border-radius: var(--radius-pill);
+  color: #fff;
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color var(--transition-fast);
 }
 
 .admin-start-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.3);
+  background: var(--accent-secondary);
 }
+
+/* ========================================
+   Processing Indicator
+   ======================================== */
 
 .admin-processing-indicator {
   display: flex;
@@ -511,7 +579,7 @@
 
 .admin-processing-text {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--text-secondary);
 }
 
 .admin-processing-dots {
@@ -522,7 +590,7 @@
 .admin-processing-dots .dot {
   width: 6px;
   height: 6px;
-  background-color: #10b981;
+  background-color: var(--accent-primary);
   border-radius: 50%;
   animation: dotPulse 1.4s infinite ease-in-out;
 }
@@ -549,46 +617,57 @@
 .admin-rename-input {
   width: 100%;
   padding: 8px 12px;
-  border: 1px solid #10b981;
-  border-radius: 6px;
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-sm);
   font-size: 14px;
   outline: none;
-  background: #ffffff;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
+/* ========================================
+   Sidebar Footer (账号区)
+   ======================================== */
+
 .sidebar-footer {
-  padding: 16px;
-  border-top: 1px solid #d1fae5;
+  padding: 8px;
+  border-top: 1px solid var(--border-color);
   margin-top: auto;
 }
 
 .user-profile {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 10px;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  color: #4b5563;
-  transition: all 0.25s ease;
+  color: var(--text-secondary);
+  transition: background-color var(--transition-fast);
 }
 
 .user-profile:hover {
-  background-color: #ecfdf5;
-  color: #1f2937;
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .user-avatar {
-  width: 36px;
-  height: 36px;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  border-radius: 10px;
+  width: 30px;
+  height: 30px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
-  color: white;
+  font-size: 15px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
 }
+
+/* ========================================
+   Modal
+   ======================================== */
 
 .admin-modal-overlay {
   position: fixed;
@@ -596,7 +675,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(20, 22, 26, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -604,9 +683,9 @@
 }
 
 .admin-modal-content {
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  background: var(--bg-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
   width: 90%;
   max-width: 400px;
   overflow: hidden;
@@ -614,14 +693,14 @@
 
 .admin-modal-header {
   padding: 16px 24px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .admin-modal-header h3 {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .admin-modal-body {
@@ -630,13 +709,13 @@
 
 .admin-modal-body p {
   margin: 0;
-  color: #4b5563;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
 .admin-modal-footer {
   padding: 16px 24px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: flex-end;
   gap: 12px;
@@ -644,28 +723,28 @@
 
 .admin-modal-btn {
   padding: 8px 20px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color var(--transition-fast);
   border: 1px solid transparent;
 }
 
 .admin-modal-btn.cancel {
-  background: #f3f4f6;
-  color: #4b5563;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
 }
 
 .admin-modal-btn.cancel:hover {
-  background: #e5e7eb;
+  background: var(--bg-hover);
 }
 
 .admin-modal-btn.confirm {
-  background: #ef4444;
-  color: white;
+  background: var(--danger);
+  color: #fff;
 }
 
 .admin-modal-btn.confirm:hover {
-  background: #dc2626;
+  background: var(--danger-strong);
 }

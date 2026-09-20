@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Markdown from '../../components/Markdown';
+import { TASK_TYPE_COLORS } from '../../styles/palette';
 import './AdminChat.css';
 
 const adminApi = axios.create({
@@ -24,12 +25,12 @@ adminApi.interceptors.request.use(
 );
 
 const TASK_TYPE_INFO = {
-  chitchat: { icon: '💬', label: '闲聊', color: '#10b981' },
-  knowledge_qa: { icon: '📚', label: '知识问答', color: '#3b82f6' },
-  admin_copilot: { icon: '⚙️', label: '管理助手', color: '#8b5cf6' },
-  knowledge_inspection: { icon: '🔍', label: '知识巡检', color: '#f59e0b' },
-  reasoning: { icon: '🧠', label: '深度推理', color: '#ec4899' },
-  unknown: { icon: '🤖', label: 'AI助手', color: '#6b7280' }
+  chitchat: { icon: '💬', label: '闲聊', color: TASK_TYPE_COLORS.chitchat },
+  knowledge_qa: { icon: '📚', label: '知识问答', color: TASK_TYPE_COLORS.knowledge_qa },
+  admin_copilot: { icon: '⚙️', label: '管理助手', color: TASK_TYPE_COLORS.admin_copilot },
+  knowledge_inspection: { icon: '🔍', label: '知识巡检', color: TASK_TYPE_COLORS.knowledge_inspection },
+  reasoning: { icon: '🧠', label: '深度推理', color: TASK_TYPE_COLORS.reasoning },
+  unknown: { icon: '🤖', label: 'AI助手', color: TASK_TYPE_COLORS.unknown }
 };
 
 const adminChatAPI = {
@@ -205,7 +206,7 @@ export default function AdminChat() {
       const sources = JSON.parse(sourcesJson);
       if (!Array.isArray(sources) || sources.length === 0) return null;
       return (
-        <div className="message-sources">
+        <div className="admin-message-sources">
           <h4>参考来源:</h4>
           <ul>
             {sources.map((s, i) => {

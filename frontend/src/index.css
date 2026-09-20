@@ -1,3 +1,5 @@
+/* 全局基础样式 —— 色值统一取自 src/styles/tokens.css */
+
 * {
   margin: 0;
   padding: 0;
@@ -10,7 +12,8 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f5f5f5;
+  background-color: var(--bg-page);
+  color: var(--text-primary);
 }
 
 #root {
@@ -21,38 +24,39 @@ body {
 .btn {
   padding: 10px 20px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 14px;
-  transition: all 0.3s;
+  transition: background-color var(--transition-normal), border-color var(--transition-normal), color var(--transition-normal);
 }
 
 .btn-primary {
-  background-color: #1890ff;
-  color: white;
+  background-color: var(--accent-primary);
+  color: var(--text-inverse);
 }
 
 .btn-primary:hover {
-  background-color: #40a9ff;
+  background-color: var(--accent-secondary);
 }
 
 .btn-danger {
-  background-color: #ff4d4f;
-  color: white;
+  background-color: var(--danger);
+  color: var(--text-inverse);
 }
 
 .btn-danger:hover {
-  background-color: #ff7875;
+  background-color: var(--danger-strong);
 }
 
 .btn-default {
-  background-color: #fff;
-  border: 1px solid #d9d9d9;
+  background-color: var(--bg-primary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
 }
 
 .btn-default:hover {
-  border-color: #40a9ff;
-  color: #40a9ff;
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
 }
 
 /* Form styles */
@@ -64,31 +68,35 @@ body {
   display: block;
   margin-bottom: 8px;
   font-weight: 500;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .form-group input,
 .form-group textarea {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid #d9d9d9;
-  border-radius: 6px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
   font-size: 14px;
-  transition: border-color 0.3s;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  transition: border-color var(--transition-normal);
 }
 
 .form-group input:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #40a9ff;
-  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
+  border-color: var(--accent-primary);
+  box-shadow: var(--focus-ring);
 }
 
 /* Card styles */
 .card {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
   padding: 24px;
 }
 
@@ -103,19 +111,19 @@ body {
 .loading {
   text-align: center;
   padding: 40px;
-  color: #999;
+  color: var(--text-muted);
 }
 
 /* Error message */
 .error {
-  color: #ff4d4f;
+  color: var(--danger);
   font-size: 14px;
   margin-top: 8px;
 }
 
 /* Success message */
 .success {
-  color: #52c41a;
+  color: var(--success);
   font-size: 14px;
   margin-top: 8px;
 }

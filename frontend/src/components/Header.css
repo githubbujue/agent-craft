@@ -1,11 +1,14 @@
+/* 色值统一取自 src/styles/tokens.css */
+
 .app-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 0 20px;
   height: 60px;
-  background-color: #fff;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  background-color: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+  box-shadow: var(--shadow-sm);
   position: sticky;
   top: 0;
   z-index: 1000;
@@ -14,7 +17,7 @@
 .app-title {
   font-size: 1.2rem;
   font-weight: bold;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .header-right {
@@ -26,20 +29,20 @@
 
 .user-info {
   font-size: 0.95rem;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .user-info.clickable {
   cursor: pointer;
   padding: 5px 10px;
-  border-radius: 4px;
-  transition: background-color 0.2s;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--transition-normal);
   user-select: none;
 }
 
 .user-info.clickable:hover {
-  background-color: #f5f5f5;
-  color: #333;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .user-profile-container {
@@ -51,10 +54,10 @@
   top: 40px;
   right: 0;
   width: 280px;
-  background-color: #fff;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-  border: 1px solid #eee;
+  background-color: var(--bg-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-color);
   z-index: 1001;
   animation: fadeIn 0.2s ease-out;
 }
@@ -69,27 +72,27 @@
   justify-content: space-between;
   align-items: center;
   padding: 15px 20px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .popup-header h3 {
   margin: 0;
   font-size: 1rem;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .close-btn {
   background: none;
   border: none;
   font-size: 1.5rem;
-  color: #999;
+  color: var(--text-muted);
   cursor: pointer;
   padding: 0;
   line-height: 1;
 }
 
 .close-btn:hover {
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .popup-content {
@@ -104,35 +107,35 @@
 
 .info-item label {
   font-size: 0.85rem;
-  color: #888;
+  color: var(--text-muted);
   margin-bottom: 4px;
 }
 
 .info-item span {
   font-size: 0.95rem;
-  color: #333;
+  color: var(--text-primary);
   font-weight: 500;
 }
 
 .logout-btn {
   padding: 8px 12px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  background: white;
-  color: #666;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color var(--transition-normal), color var(--transition-normal), border-color var(--transition-normal);
   text-align: center;
 }
 
 .logout-btn.full-width {
   width: 100%;
   margin-top: 10px;
-  background-color: #f8f9fa;
+  background-color: var(--bg-secondary);
 }
 
 .logout-btn:hover {
-  background: #f5f5f5;
-  color: #d9534f;
-  border-color: #d9534f;
+  background: var(--bg-tertiary);
+  color: var(--danger);
+  border-color: var(--danger);
 }

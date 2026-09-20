@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react';
 import Markdown from '../../components/Markdown';
+import { COLOR } from '../../styles/palette';
 import './AdminDashboard.css';
 
+// 状态色会被拼成半透明底(statusColors[s] + '20'), 故必须用真实色值而非 var()。
+// 色值取自 src/styles/palette.js, 与 tokens.css 保持同一套语义。
 const statusColors = {
-  PENDING: '#d9d9d9',
-  RUNNING: '#1890ff',
-  COMPLETED: '#52c41a',
-  FAILED: '#ff4d4f',
-  INTERRUPTED: '#faad14',
-  WAITING: '#13c2c2'
+  PENDING: COLOR.disabled,
+  RUNNING: COLOR.info,
+  COMPLETED: COLOR.success,
+  FAILED: COLOR.danger,
+  INTERRUPTED: COLOR.warning,
+  WAITING: COLOR.accent
 };
 
 const statusLabels = {

@@ -1,16 +1,18 @@
 import { useEffect, useState, useRef } from 'react';
 import * as echarts from 'echarts';
 import { getEvalStats } from '../../api/evalStats';
+import { COLOR, SCALE_COLORS } from '../../styles/palette';
 import './Dashboard.css';       // 复用统计卡片/表格/区块样式, 与仪表盘保持视觉一致
 import './EvalDashboard.css';
 
-// 忠实度分档配色: 低分警示 → 高分健康
+// 忠实度分档配色: 低分警示 → 高分健康。
+// ECharts 走 canvas 渲染, 不解析 CSS 变量, 所以这里必须用真实色值(取自 palette.js)
 const BUCKET_COLORS = {
-  '0.0-0.2': '#ff4d4f',
-  '0.2-0.4': '#ff7a45',
-  '0.4-0.6': '#faad14',
-  '0.6-0.8': '#95de64',
-  '0.8-1.0': '#52c41a',
+  '0.0-0.2': SCALE_COLORS[0],
+  '0.2-0.4': SCALE_COLORS[1],
+  '0.4-0.6': SCALE_COLORS[2],
+  '0.6-0.8': SCALE_COLORS[3],
+  '0.8-1.0': SCALE_COLORS[4],
 };
 
 // null / undefined 显示占位符 —— "没有数据"与"数值为 0"语义不同, 不能混淆
@@ -85,7 +87,7 @@ export default function EvalDashboard() {
           barMaxWidth: 46,
           data: buckets.map((b) => ({
             value: Number(b.value),
-            itemStyle: { color: BUCKET_COLORS[b.name] || '#1890ff' },
+            itemStyle: { color: BUCKET_COLORS[b.name] || COLOR.accent },
           })),
           label: { show: true, position: 'top' },
         }],
@@ -114,7 +116,7 @@ export default function EvalDashboard() {
             smooth: true,
             connectNulls: false,        // 无数据的日期断点, 不要假装连成一条线
             yAxisIndex: 0,
-            itemStyle: { color: '#52c41a' },
+            itemStyle: { color: COLOR.success },
             data: trend.map((t) => (t.faithfulness == null ? null : Number(t.faithfulness))),
           },
           {
@@ -123,7 +125,7 @@ export default function EvalDashboard() {
             smooth: true,
             connectNulls: false,
             yAxisIndex: 1,
-            itemStyle: { color: '#1890ff' },
+            itemStyle: { color: COLOR.accent },
             data: trend.map((t) => (t.quality == null ? null : Number(t.quality))),
           },
         ],
@@ -144,8 +146,8 @@ export default function EvalDashboard() {
           radius: ['42%', '66%'],
           center: ['50%', '48%'],
           data: [
-            { value: Number(suff.sufficient || 0), name: '充分', itemStyle: { color: '#52c41a' } },
-            { value: Number(suff.insufficient || 0), name: '不充分', itemStyle: { color: '#ff4d4f' } },
+            { value: Number(suff.sufficient || 0), name: '充分', itemStyle: { color: COLOR.success } },
+            { value: Number(suff.insufficient || 0), name: '不充分', itemStyle: { color: COLOR.danger } },
           ],
           label: { formatter: '{b}\n{c} 次' },
         }],

@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
+import { COLOR } from '../../styles/palette';
 import './AdminDashboard.css';
 
+// 这个映射会被用于 "色值 + '20'" 拼接出半透明底(statusColors[p] + '20'),
+// 所以必须用真实色值, 不能写 var() —— 拼出来会是 'var(--danger)20' 这种非法值
 const priorityColors = {
-  '高': '#ff4d4f',
-  '中': '#faad14',
-  '低': '#52c41a'
+  '高': COLOR.danger,
+  '中': COLOR.warning,
+  '低': COLOR.success
 };
 
 const suggestionTypeLabels = {
@@ -404,21 +407,21 @@ export default function KnowledgeInspection() {
                     <div className="stat-label">Chunk总数</div>
                   </div>
                   <div className="stat-item">
-                    <div className="stat-value" style={{ color: '#ff4d4f' }}>{data.stats.duplicateDocGroups || 0}</div>
+                    <div className="stat-value" style={{ color: 'var(--danger)' }}>{data.stats.duplicateDocGroups || 0}</div>
                     <div className="stat-label">重复文档组</div>
                   </div>
                 </div>
                 <div className="stats-grid" style={{ marginTop: '16px' }}>
                   <div className="stat-item">
-                    <div className="stat-value" style={{ color: '#faad14' }}>{data.stats.lowQualityChunkCount || 0}</div>
+                    <div className="stat-value" style={{ color: 'var(--warning)' }}>{data.stats.lowQualityChunkCount || 0}</div>
                     <div className="stat-label">低质量Chunk</div>
                   </div>
                   <div className="stat-item">
-                    <div className="stat-value" style={{ color: '#52c41a' }}>{data.stats.outdatedDocCount || 0}</div>
+                    <div className="stat-value" style={{ color: 'var(--success)' }}>{data.stats.outdatedDocCount || 0}</div>
                     <div className="stat-label">过期文档</div>
                   </div>
                   <div className="stat-item">
-                    <div className="stat-value" style={{ color: '#722ed1' }}>{data.stats.unaccessedDocCount || 0}</div>
+                    <div className="stat-value" style={{ color: 'var(--info)' }}>{data.stats.unaccessedDocCount || 0}</div>
                     <div className="stat-label">无人访问文档</div>
                   </div>
                 </div>
@@ -581,7 +584,7 @@ export default function KnowledgeInspection() {
 
         .stat-item {
           background: white;
-          border: 1px solid #e8e8e8;
+          border: 1px solid var(--border-color);
           border-radius: 12px;
           padding: 28px 24px;
           color: #333;
@@ -599,7 +602,7 @@ export default function KnowledgeInspection() {
           font-size: 42px;
           font-weight: 800;
           margin-bottom: 12px;
-          color: #1890ff;
+          color: var(--accent-primary);
           letter-spacing: -0.5px;
         }
 
@@ -613,7 +616,7 @@ export default function KnowledgeInspection() {
           display: flex;
           gap: 12px;
           margin-bottom: 20px;
-          border-bottom: 2px solid #f0f0f0;
+          border-bottom: 2px solid var(--border-color);
           padding-bottom: 12px;
         }
 
@@ -630,12 +633,12 @@ export default function KnowledgeInspection() {
         }
 
         .tab-btn:hover {
-          background: #f5f5f5;
+          background: var(--bg-tertiary);
           color: #333;
         }
 
         .tab-btn.active {
-          background: #1890ff;
+          background: var(--accent-primary);
           color: white;
         }
 
@@ -646,7 +649,7 @@ export default function KnowledgeInspection() {
         }
 
         .cluster-item {
-          border: 1px solid #e8e8e8;
+          border: 1px solid var(--border-color);
           border-radius: 8px;
           overflow: hidden;
           cursor: pointer;
@@ -654,7 +657,7 @@ export default function KnowledgeInspection() {
         }
 
         .cluster-item:hover {
-          border-color: #40a9ff;
+          border-color: var(--accent-secondary);
           box-shadow: 0 2px 8px rgba(64, 169, 255, 0.15);
         }
 
@@ -663,7 +666,7 @@ export default function KnowledgeInspection() {
           justify-content: space-between;
           align-items: center;
           padding: 16px;
-          background-color: #fafafa;
+          background-color: var(--bg-secondary);
         }
 
         .cluster-info {
@@ -695,7 +698,7 @@ export default function KnowledgeInspection() {
         .cluster-details {
           padding: 16px;
           background-color: #fff;
-          border-top: 1px solid #e8e8e8;
+          border-top: 1px solid var(--border-color);
         }
 
         .cluster-summary, .cluster-keywords, .cluster-questions {
@@ -721,8 +724,8 @@ export default function KnowledgeInspection() {
 
         .keyword-tag {
           display: inline-block;
-          background-color: #e6f7ff;
-          color: #1890ff;
+          background-color: var(--accent-soft);
+          color: var(--accent-primary);
           padding: 4px 10px;
           border-radius: 4px;
           font-size: 12px;
@@ -744,7 +747,7 @@ export default function KnowledgeInspection() {
         }
 
         .issue-group {
-          border: 1px solid #e8e8e8;
+          border: 1px solid var(--border-color);
           border-radius: 8px;
           overflow: hidden;
         }
@@ -754,8 +757,8 @@ export default function KnowledgeInspection() {
           align-items: center;
           gap: 12px;
           padding: 12px 16px;
-          background: #fafafa;
-          border-bottom: 1px solid #e8e8e8;
+          background: var(--bg-secondary);
+          border-bottom: 1px solid var(--border-color);
         }
 
         .issue-tag {
@@ -766,8 +769,8 @@ export default function KnowledgeInspection() {
         }
 
         .issue-tag.duplicate {
-          background: #fff1f0;
-          color: #ff4d4f;
+          background: var(--danger-soft);
+          color: var(--danger);
         }
 
         .issue-count {
@@ -790,18 +793,18 @@ export default function KnowledgeInspection() {
         }
 
         .status-badge.warning {
-          background: #fffbe6;
-          color: #faad14;
+          background: var(--warning-soft);
+          color: var(--warning);
         }
 
         .status-badge.error {
-          background: #fff1f0;
-          color: #ff4d4f;
+          background: var(--danger-soft);
+          color: var(--danger);
         }
 
         .status-badge.purple {
-          background: #f9f0ff;
-          color: #722ed1;
+          background: var(--info-soft);
+          color: var(--info);
         }
 
         .more-hint {

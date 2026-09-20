@@ -1,3 +1,5 @@
+/* 色值统一取自 src/styles/tokens.css */
+
 .dashboard-container {
   padding: 20px;
 }
@@ -5,7 +7,7 @@
 .page-title {
   margin-bottom: 20px;
   font-size: 24px;
-  color: #1a1a1a;
+  color: var(--text-primary);
 }
 
 .stats-cards {
@@ -16,27 +18,24 @@
 
 .stat-card {
   flex: 1;
-  background: white;
+  background: var(--bg-primary);
   padding: 20px;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
   text-align: center;
-  transition: transform 0.2s;
 }
 
-.stat-card:hover {
-  transform: translateY(-2px);
-}
-
+/* 指标数值是全页唯一"数字型强调", 用深松绿 */
 .stat-value {
   font-size: 2em;
   font-weight: bold;
-  color: #1890ff;
+  color: var(--accent-primary);
   margin-bottom: 5px;
 }
 
 .stat-label {
-  color: #666;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
@@ -47,19 +46,20 @@
 }
 
 .dashboard-section {
-  background: white;
+  background: var(--bg-primary);
   padding: 20px;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
   height: 100%;
 }
 
 .dashboard-section h3 {
   margin: 0 0 15px 0;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-color);
   padding-bottom: 10px;
   font-size: 16px;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .data-table {
@@ -68,15 +68,15 @@
 }
 
 .data-table th {
-  background: #fafafa;
+  background: var(--bg-secondary);
   font-weight: 600;
-  color: #555;
+  color: var(--text-secondary);
 }
 
 .data-table th, .data-table td {
   padding: 12px;
   text-align: left;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .data-table tr:last-child td {
@@ -91,7 +91,7 @@
 }
 
 .empty-text {
-  color: #999;
+  color: var(--text-muted);
   text-align: center;
   padding: 20px;
   font-size: 14px;

@@ -164,19 +164,19 @@ export default function Reports() {
             </div>
             <div className="stats-grid" style={{ marginTop: '16px' }}>
               <div className="stat-item">
-                <div className="stat-value" style={{ color: '#52c41a' }}>
+                <div className="stat-value" style={{ color: 'var(--success)' }}>
                   {reportData.agentPerformance?.successRate || 0}%
                 </div>
                 <div className="stat-label">成功率</div>
               </div>
               <div className="stat-item">
-                <div className="stat-value" style={{ color: '#ff4d4f' }}>
+                <div className="stat-value" style={{ color: 'var(--danger)' }}>
                   {reportData.agentPerformance?.failureRate || 0}%
                 </div>
                 <div className="stat-label">失败率</div>
               </div>
               <div className="stat-item">
-                <div className="stat-value" style={{ color: '#faad14' }}>
+                <div className="stat-value" style={{ color: 'var(--warning)' }}>
                   {reportData.toolFailures?.totalFailures || 0}
                 </div>
                 <div className="stat-label">工具失败次数</div>
@@ -367,7 +367,7 @@ export default function Reports() {
 
         .stat-item {
           background: white;
-          border: 1px solid #e8e8e8;
+          border: 1px solid var(--border-color);
           border-radius: 12px;
           padding: 28px 24px;
           color: #333;
@@ -385,7 +385,7 @@ export default function Reports() {
           font-size: 42px;
           font-weight: 800;
           margin-bottom: 12px;
-          color: #1890ff;
+          color: var(--accent-primary);
           letter-spacing: -0.5px;
         }
 
@@ -407,12 +407,12 @@ export default function Reports() {
         }
 
         .rank-badge.rank-top {
-          background: linear-gradient(135deg, #ff9a56, #ff6b6b);
-          color: white;
+          background: var(--accent-gradient);
+          color: var(--text-inverse);
         }
 
         .rank-badge.rank-normal {
-          background: #f0f0f0;
+          background: var(--border-color);
           color: #666;
         }
 
@@ -431,7 +431,7 @@ export default function Reports() {
         }
 
         .growth-item {
-          background: #f8f9fa;
+          background: var(--bg-secondary);
           padding: 16px;
           border-radius: 8px;
           text-align: center;
@@ -447,13 +447,13 @@ export default function Reports() {
         .growth-value {
           font-size: 24px;
           font-weight: 700;
-          color: #1890ff;
+          color: var(--accent-primary);
         }
 
         .trend-chart {
           margin-top: 24px;
           padding-top: 16px;
-          border-top: 1px solid #f0f0f0;
+          border-top: 1px solid var(--border-color);
         }
 
         .trend-title {
@@ -481,7 +481,7 @@ export default function Reports() {
         .trend-bar {
           width: 100%;
           max-width: 40px;
-          background: linear-gradient(180deg, #1890ff 0%, #40a9ff 100%);
+          background: linear-gradient(180deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
           border-radius: 4px 4px 0 0;
           display: flex;
           align-items: flex-start;
@@ -491,11 +491,11 @@ export default function Reports() {
         }
 
         .trend-bar.doc-bar {
-          background: linear-gradient(180deg, #1890ff 0%, #40a9ff 100%);
+          background: linear-gradient(180deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
         }
 
         .trend-bar.success-bar {
-          background: linear-gradient(180deg, #52c41a 0%, #73d13d 100%);
+          background: linear-gradient(180deg, var(--success) 0%, var(--success-light) 100%);
         }
 
         .bar-value {
@@ -520,19 +520,19 @@ export default function Reports() {
         }
 
         .perf-item {
-          background: #f8f9fa;
+          background: var(--bg-secondary);
           padding: 20px;
           border-radius: 8px;
           text-align: center;
-          border-left: 4px solid #1890ff;
+          border-left: 4px solid var(--accent-primary);
         }
 
         .perf-item.success {
-          border-left-color: #52c41a;
+          border-left-color: var(--success);
         }
 
         .perf-item.failure {
-          border-left-color: #ff4d4f;
+          border-left-color: var(--danger);
         }
 
         .perf-label {
@@ -548,16 +548,16 @@ export default function Reports() {
         }
 
         .tool-name {
-          background: #f5f5f5;
+          background: var(--bg-tertiary);
           padding: 4px 8px;
           border-radius: 4px;
           font-size: 13px;
-          color: #1890ff;
+          color: var(--accent-primary);
         }
 
         .failure-count {
           font-weight: 700;
-          color: #ff4d4f;
+          color: var(--danger);
         }
 
         .error-text {

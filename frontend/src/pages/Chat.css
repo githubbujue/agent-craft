@@ -2,59 +2,8 @@
    Fresh Green Theme - Chat Page CSS
    ======================================== */
 
-:root {
-  /* ===== 设计令牌: 中性灰阶 + 深松绿强调 =====
-     原则: 彩色只出现在三个地方 —— 主按钮 / 选中态 / 语义状态, 其余一律中性。
-     旧版是 "Fresh Green" 主题: 亮绿 #10b981 铺在背景、边框、文字上,
-     导致强调被稀释、整体偏"廉价"。这里把绿压暗成深松绿, 底色改为中性灰阶,
-     靠 1px 细线分区而不是靠阴影和位移。 */
-
-  /* 背景: 中性灰阶 */
-  --bg-primary: #ffffff;
-  --bg-secondary: #f4f6f9;
-  --bg-tertiary: #f0f2f5;
-  --bg-hover: #e9ecf1;
-  --bg-input: #ffffff;
-
-  /* 文字: 三级灰阶(主 / 次 / 弱) */
-  --text-primary: #14161a;
-  --text-secondary: #5c6370;
-  --text-muted: #9aa1ad;
-
-  /* 强调: 深松绿 —— 仅用于主按钮与选中态 */
-  --accent-primary: #1f6f5c;
-  --accent-secondary: #17594a;
-  --accent-gradient: linear-gradient(135deg, #1f6f5c 0%, #17594a 100%);
-  --accent-soft: #eaf3f0;
-
-  /* 边框: 中性细线(替代绿色边框) */
-  --border-color: #e6e8ec;
-  --border-light: #d8dbe0;
-
-  /* 语义色 */
-  --danger: #c0392b;
-  --danger-soft: rgba(192, 57, 43, 0.08);
-
-  /* 阴影: 统一冷灰, 去掉彩色投影 */
-  --shadow-sm: 0 1px 2px rgba(20, 22, 26, 0.05);
-  --shadow-md: 0 2px 10px rgba(20, 22, 26, 0.07);
-  --shadow-lg: 0 8px 28px rgba(20, 22, 26, 0.10);
-
-  /* 圆角梯度 */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  --radius-pill: 24px;
-
-  /* Spacing */
-  --sidebar-width: 260px;
-  --header-height: 56px;
-
-  /* Transitions */
-  --transition-fast: 0.15s ease;
-  --transition-normal: 0.2s ease;
-  --transition-smooth: 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-}
+/* 设计令牌(色板 / 圆角 / 阴影 / 过渡)已抽取到 src/styles/tokens.css 统一维护,
+   由 main.jsx 全局引入 —— 本文件直接使用 var(--xxx) 即可, 不再重复定义。 */
 
 /* ========================================
    Layout
@@ -862,7 +811,7 @@
 }
 
 .stop-btn:hover {
-  background: #a93226;
+  background: var(--danger-strong);
 }
 
 .upload-btn {

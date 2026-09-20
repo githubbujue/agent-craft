@@ -123,7 +123,7 @@ export default function Dashboard() {
                         length2: 24,
                         smooth: true
                     },
-                    data: hasData ? typeData : [{ name: '暂无数据', value: 1, itemStyle: { color: '#f0f0f0' } }]
+                    data: hasData ? typeData : [{ name: '暂无数据', value: 1, itemStyle: { color: 'var(--border-color)' } }]
                 }
             ]
         };
@@ -286,7 +286,7 @@ export default function Dashboard() {
                 {stats.unansweredQuestions && stats.unansweredQuestions.length > 0 ? (
                   stats.unansweredQuestions.map((q, index) => (
                     <tr key={index}>
-                      <td className="text-truncate" title={q.question} style={{maxWidth: '200px', color: '#ff4d4f'}}>{q.question}</td>
+                      <td className="text-truncate" title={q.question} style={{maxWidth: '200px', color: 'var(--danger)'}}>{q.question}</td>
                       <td>{q.count}</td>
                     </tr>
                   ))
