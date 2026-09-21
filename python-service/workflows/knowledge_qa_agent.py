@@ -118,13 +118,18 @@ class KnowledgeQAAgent:
         if not docs:
             # 兜底策略：知识库无资料仍走 LLM 通用知识回答（而非冷拒绝），
             # 保证任何路径都有完整轨迹 + 有温度的回答
+            # 兜底同样是一次真实 LLM 调用, 也要计耗时并传给 evaluate_answer,
+            # 否则零命中时"答案生成"步骤会落成 0ms(此前漏传 gen_ms)
+            _g0 = time.time()
             answer = self.llm_service.get_answer(question, [], full_context)
+            gen_ms = (time.time() - _g0) * 1000
             self._save_to_memory(conversation_id, question, answer)
             return {"answer": answer, "sources": [], "has_sources": False,
                     "task_type": "knowledge_qa",
                     "evaluation": self._evaluation_meta(
                         sufficiency,
-                        answer_quality=evaluate_answer(question, answer, [], chain="L1"))}
+                        answer_quality=evaluate_answer(question, answer, [],
+                                                       chain="L1", gen_ms=gen_ms))}
 
         _g0 = time.time()
         answer = self.llm_service.get_answer(question, docs, full_context)
@@ -171,13 +176,17 @@ class KnowledgeQAAgent:
 
         if not docs:
             # 兜底策略：同 L1 —— 知识库无资料仍走 LLM 通用知识回答
+            # gen_ms 同 L1: 兜底也是真实 LLM 调用, 不传会让"答案生成"落成 0ms
+            _g0 = time.time()
             answer = self.llm_service.get_answer(question, [], full_context)
+            gen_ms = (time.time() - _g0) * 1000
             self._save_to_memory(conversation_id, question, answer)
             return {"answer": answer, "sources": [], "has_sources": False,
                     "task_type": "knowledge_qa",
                     "evaluation": self._evaluation_meta(
                         sufficiency,
-                        answer_quality=evaluate_answer(question, answer, [], chain="L2"))}
+                        answer_quality=evaluate_answer(question, answer, [],
+                                                       chain="L2", gen_ms=gen_ms))}
 
         # 将检索结果转为 LLM 可用的文档格式
         llm_docs = []

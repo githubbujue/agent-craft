@@ -61,10 +61,15 @@ class ReasoningAgent:
             reasoning_steps = []
             all_docs = []  # 汇总各子问题命中的资料, 供答案生成后的后台忠实度评判
             for sub_q in sub_questions:
+                _t0 = time.time()
                 docs = self.vector_store.search(sub_q, k=3, similarity_threshold=0.45)
+                search_ms = (time.time() - _t0) * 1000
                 all_docs.extend(docs)
                 # 评估层：每个子问题单独评估检索充分性（缺料推理是编造高发区）
-                sufficiency = evaluate_retrieval(docs, sub_q, chain="L3")
+                # search_ms 必须显式传入 —— L1/STREAM 都传了, L3 此前漏了,
+                # 导致该步骤耗时落库为 NULL, 页面上显示 "-", 与"压根没跑这一步"无法区分
+                sufficiency = evaluate_retrieval(docs, sub_q, chain="L3",
+                                                 search_ms=search_ms)
                 sub_answer = self._reason_sub_question(sub_q, docs, full_context)
                 reasoning_steps.append({
                     "sub_question": sub_q,
@@ -78,7 +83,11 @@ class ReasoningAgent:
                 })
 
             # Step 3：汇总生成最终答案
+            # 计时: 这是真实的 LLM 调用(复杂问题答案常上千字), 耗时是用户等待
+            # 时间的大头, 必须传给 evaluate_answer 才会落进"答案生成"步骤
+            _g0 = time.time()
             final_answer = self._synthesize_answer(question, reasoning_steps)
+            gen_ms = (time.time() - _g0) * 1000
 
             # 降级策略：所有子问题都缺料 → 整体提示，防止把通用推理当知识库事实
             insufficient_count = sum(
@@ -134,7 +143,8 @@ class ReasoningAgent:
                     "reasoning": (f"{len(reasoning_steps) - insufficient_count}/"
                                   f"{len(reasoning_steps)} 个子问题检索充分"),
                     "answer_quality": evaluate_answer(
-                        question, final_answer, all_sources, chain="L3"),
+                        question, final_answer, all_sources,
+                        chain="L3", gen_ms=gen_ms),
                 }
             }
 
