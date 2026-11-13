@@ -3,7 +3,7 @@
 > ⚠️ **历史版本存档，勿直接引用**
 > 本文是重构前的 README 原件。其中「五层可编排 Agent 架构、请求经过 Orchestrator」的表述
 > 与当前代码不符：`Orchestrator` / `Planner.plan_steps()` / `Executor` 这套编排骨架
-> **运行时不参与任何请求**（`_ask_with_orchestrator()` 全项目零调用点）。
+> **从未被任何入口调用，并已于 2026-11-13 整体删除**（`agent/` 现只保留事件总线）。
 > 准确版本请以根目录 `项目简要介绍.md` 为准。
 
 # 🚀 AgentCraft — 多 Agent 协作智能知识库系统

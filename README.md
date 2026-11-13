@@ -106,7 +106,7 @@ React 18 / Vite · MySQL / Redis / 通义千问 (DashScope)
 ```
 ├── src/main/java/...        # Java 业务层 (对话/文档/管理/轨迹查询)
 ├── python-service/
-│   ├── agent/               # 状态机/规划器/执行器(未接入主链路) + 评估层
+│   ├── agent/               # 事件总线 (EventBus, 供全链路埋点使用)
 │   ├── workflows/           # 路由 + 四个领域 Agent (问答/闲聊/巡检/管理助手)
 │   ├── tools/               # 检索/改写/重排/引用/记忆 工具集
 │   ├── core/                # LLM/向量库/评估器/事件总线/留痕

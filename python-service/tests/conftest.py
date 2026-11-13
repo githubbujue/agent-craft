@@ -9,19 +9,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 @pytest.fixture
-def sample_state():
-    """创建示例 AgentState"""
-    from agent.state import AgentState
-    return AgentState(
-        run_id="test-run-001",
-        trace_id="test-trace-001",
-        conversation_id="conv-001",
-        user_id="user-001",
-        original_input="什么是 RAG？"
-    )
-
-
-@pytest.fixture
 def tool_registry():
     """创建干净的 ToolRegistry 实例"""
     from tools.registry import ToolRegistry

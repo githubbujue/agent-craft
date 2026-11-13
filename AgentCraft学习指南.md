@@ -48,11 +48,11 @@ README 已经说明了：
 **【亮点一】设计五层可编排 Agent 架构**
 
 > ⚠️ **准确性提示（2026-11-13 按代码核实）**：这里的「五层」是**代码分层**，不是运行时数据流。
-> `Orchestrator` / `Planner.plan_steps()` / `Executor` 这套编排骨架**当前零调用点**
-> （`_ask_with_orchestrator()` 从未被调用），真实请求链路是
+> `Orchestrator` / `Planner.plan_steps()` / `Executor` 这套编排骨架**已于 2026-11-13 整体删除**
+> （此前也是零调用点，`_ask_with_orchestrator()` 从未被调用），真实请求链路是
 > `接口层 → RouterAgent → workflows/*_agent 固定流程 → 评估层 → 事件总线落库`。
-> 简历与答辩时不要说成「请求经过五层链路」；详见 `项目简要介绍.md` 的
-> 「关于那套状态机 + 规划器 + 执行器」。
+> 简历与答辩时不要说成「请求经过五层链路」，也不要再说「实现了状态机 + 规划器」；
+> 详见 `项目简要介绍.md` 的「曾经的编排骨架（已删除）」。
 
 将 AI 服务拆分为 Interface、Orchestrator、Tool、Memory、Evaluation 五层，每层职责单一、可独立扩展。
 

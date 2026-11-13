@@ -13,21 +13,73 @@
 """
 import logging
 import time
+from dataclasses import dataclass
 
 from agent.events import EventBus, Event
 from core.run_context import get_run_id
 
 logger = logging.getLogger(__name__)
 
-_planner = None  # 惰性加载, 避免模块导入时就初始化意图分类器
+
+@dataclass
+class SufficiencyResult:
+    """结果充分性判断结果"""
+    is_sufficient: bool
+    confidence: float
+    reasoning: str
+    missing_aspects: list
+    suggestions: list
 
 
-def _get_planner():
-    global _planner
-    if _planner is None:
-        from agent.planner import Planner
-        _planner = Planner()
-    return _planner
+def _evaluate_sufficiency(chunks: list, question: str, scores: list = None) -> SufficiencyResult:
+    """评估检索结果充分性（纯规则，不调 LLM）。
+
+    这段逻辑原本在 agent/planner.py 的 Planner.evaluate_retrieval_sufficiency() 里，
+    是全项目唯一被主链路使用的 Planner 方法。编排骨架（Orchestrator/Executor/Planner）
+    下线后迁入评估层，判定规则与 reasoning 文案原样保留 —— 文案会直接落进 agent_step
+    的 output，改动会让历史轨迹与新轨迹的可读性不一致。
+    """
+    if not chunks:
+        return SufficiencyResult(
+            is_sufficient=False,
+            confidence=1.0,
+            reasoning="未检索到任何相关文档",
+            missing_aspects=["相关知识文档"],
+            suggestions=["建议补充相关知识文档", "尝试使用不同的关键词检索"]
+        )
+
+    if scores:
+        # 低分线 0.4: 与检索层硬阈值(0.45)分层 —— 通过检索的文档(>=0.45)
+        # 不会触发本规则, 只有调用方放宽阈值时才会作为兜底信号
+        low_score_count = sum(1 for s in scores if s < 0.4)
+    else:
+        low_score_count = 0  # 分数未知时不套用低分规则，避免"缺数据→误判不充分"的假阳性
+    if low_score_count > max(1, len(scores or chunks)) * 0.5:
+        return SufficiencyResult(
+            is_sufficient=False,
+            confidence=0.8,
+            reasoning=f"大部分检索结果相似度较低（{low_score_count}/{len(chunks)}低于阈值）",
+            missing_aspects=["高质量检索结果"],
+            suggestions=["优化检索query", "增加同义词扩展"]
+        )
+
+    coverage = min(1.0, len(chunks) * 0.3)
+    if coverage < 0.5:
+        return SufficiencyResult(
+            is_sufficient=False,
+            confidence=0.7,
+            reasoning=f"检索结果覆盖度较低（{coverage:.2f}）",
+            missing_aspects=["相关文档数量"],
+            suggestions=["增加知识库内容", "调整相似度阈值"]
+        )
+
+    return SufficiencyResult(
+        is_sufficient=True,
+        confidence=0.85,
+        reasoning=f"检索到{len(chunks)}个相关结果，置信度良好",
+        missing_aspects=[],
+        suggestions=[]
+    )
 
 
 def extract_scores(docs: list) -> list:
@@ -95,8 +147,6 @@ def evaluate_retrieval(docs: list, question: str, chain: str = "",
         publish_retrieval_event: 是否发布"知识检索"事件 —— L2 链路的检索
             事件由 retrieval_agent 在检索完成后立即发布(保证时序), 此处置 False
     """
-    from agent.planner import SufficiencyResult
-
     if scores is None:
         scores = extract_scores(docs)
     avg_score = round(sum(scores) / len(scores), 3) if scores else 0.0
@@ -112,7 +162,7 @@ def evaluate_retrieval(docs: list, question: str, chain: str = "",
     # 分数语义已校准（vector_store 现在返回真实余弦相似度 0-1）, 分数规则参与判定
     start = time.time()
     try:
-        result = _get_planner().evaluate_retrieval_sufficiency(docs, question, scores)
+        result = _evaluate_sufficiency(docs, question, scores)
     except Exception as e:
         logger.warning(f"[Evaluator] sufficiency eval failed, fail-open: {e}")
         result = SufficiencyResult(

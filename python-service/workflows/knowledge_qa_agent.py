@@ -1,6 +1,4 @@
 from typing import Dict, Any, Optional, Generator
-from agent.orchestrator import Orchestrator
-from agent.state import AgentState
 from agent.events import EventBus, event_bus
 from workflows.retrieval_agent import RetrievalAgent
 from core.vector_store import vector_store
@@ -20,7 +18,6 @@ class KnowledgeQAAgent:
     """知识问答Agent - 三级链路：L1简化/L2标准/L3推理"""
 
     def __init__(self):
-        self.orchestrator = Orchestrator()
         self.event_bus = event_bus
         self.retrieval_agent = RetrievalAgent()
         self.vector_store = vector_store
@@ -528,40 +525,6 @@ class KnowledgeQAAgent:
                 "type": "error",
                 "content": "处理问题时遇到错误，请稍后再试。"
             })
-
-    def _ask_with_orchestrator(self, question: str, conversation_id: Optional[str] = None,
-                               user_id: Optional[str] = None, context: str = "",
-                               **kwargs) -> Dict[str, Any]:
-        """
-        使用原有的Orchestrator方式进行知识问答（回退方案）
-        """
-        logger.info(f"[KnowledgeQAAgent] Using orchestrator fallback...")
-        result = self.orchestrator.run(
-            input_text=question,
-            conversation_id=conversation_id,
-            user_id=user_id,
-            context=context,
-            goal=f"回答知识问题: {question[:50]}...",
-            **kwargs
-        )
-        return result
-
-    def _ask_stream_with_orchestrator(self, question: str, conversation_id: Optional[str] = None,
-                                      user_id: Optional[str] = None, context: str = "",
-                                      **kwargs) -> Generator[str, None, None]:
-        """
-        使用原有的Orchestrator方式进行流式知识问答（回退方案）
-        """
-        logger.info(f"[KnowledgeQAAgent] Using orchestrator stream fallback...")
-        for event in self.orchestrator.run_stream(
-            input_text=question,
-            conversation_id=conversation_id,
-            user_id=user_id,
-            context=context,
-            goal=f"流式回答知识问题: {question[:50]}...",
-            **kwargs
-        ):
-            yield event
 
     def register_callback(self, event_type: str, callback):
         """注册事件回调"""

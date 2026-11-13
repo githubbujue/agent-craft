@@ -2,7 +2,6 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from workflows import RouterAgent
-from agent.state import AgentState
 from agent.events import event_bus, Event
 from typing import Optional, List, Dict, Any
 from collections import defaultdict
@@ -56,8 +55,6 @@ class ToolCallEvent(BaseModel):
     status: str
     duration_ms: Optional[float] = None
 
-
-stored_states: Dict[str, AgentState] = {}
 
 task_stats = defaultdict(lambda: {
     "total": 0,
@@ -225,112 +222,6 @@ async def run_agent_stream(request: AgentRunRequest):
             "X-Accel-Buffering": "no"
         }
     )
-
-
-@router.get("/agent/run/{run_id}")
-async def get_run_status(run_id: str):
-    """
-    获取Agent运行状态
-
-    Args:
-        run_id: 运行ID
-
-    Returns:
-        运行状态信息
-    """
-    if run_id in stored_states:
-        state = stored_states[run_id]
-        return {
-            "run_id": state.run_id,
-            "trace_id": state.trace_id,
-            "status": state.status.value,
-            "current_step_index": state.current_step_index,
-            "steps": [
-                {
-                    "step_id": s.step_id,
-                    "step_name": s.step_name,
-                    "status": s.status.value,
-                    "duration_ms": s.duration_ms
-                }
-                for s in state.steps
-            ],
-            "elapsed_time": state.elapsed_time
-        }
-
-    return {
-        "run_id": run_id,
-        "status": "not_found",
-        "message": "Run not found or expired"
-    }
-
-
-@router.get("/agent/run/{run_id}/steps")
-async def get_run_steps(run_id: str):
-    """
-    获取Agent运行步骤详情
-
-    Args:
-        run_id: 运行ID
-
-    Returns:
-        步骤详情列表
-    """
-    if run_id not in stored_states:
-        raise HTTPException(status_code=404, detail="Run not found")
-
-    state = stored_states[run_id]
-    return {
-        "run_id": run_id,
-        "steps": [
-            {
-                "step_id": s.step_id,
-                "step_type": s.step_type.value,
-                "step_name": s.step_name,
-                "status": s.status.value,
-                "input_data": s.input_data,
-                "output_data": s.output_data,
-                "error_message": s.error_message,
-                "duration_ms": s.duration_ms,
-                "tool_call_id": s.tool_call_id,
-                "start_time": s.start_time,
-                "end_time": s.end_time
-            }
-            for s in state.steps
-        ]
-    }
-
-
-@router.get("/agent/run/{run_id}/tool-calls")
-async def get_run_tool_calls(run_id: str):
-    """
-    获取Agent运行的工具调用记录
-
-    Args:
-        run_id: 运行ID
-
-    Returns:
-        工具调用记录列表
-    """
-    if run_id not in stored_states:
-        raise HTTPException(status_code=404, detail="Run not found")
-
-    state = stored_states[run_id]
-    return {
-        "run_id": run_id,
-        "tool_calls": [
-            {
-                "tool_call_id": tc.tool_call_id,
-                "tool_name": tc.tool_name,
-                "input_params": tc.input_params,
-                "output": tc.output,
-                "status": tc.status,
-                "duration_ms": tc.duration_ms,
-                "error_message": tc.error_message,
-                "timestamp": tc.timestamp
-            }
-            for tc in state.tool_calls
-        ]
-    }
 
 
 @router.get("/agent/tools")
