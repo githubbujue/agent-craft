@@ -291,13 +291,19 @@ class KnowledgeQAAgent:
                 continue
             if doc_id:
                 seen_doc_ids.add(doc_id)
-            sources.append({
+            entry = {
                 "doc_id": doc_id,
                 "doc": metadata.get("source", "未知文档"),
                 "page": metadata.get("page"),
                 "chunk_index": metadata.get("chunk_index"),
                 "score": metadata.get("score", 0)
-            })
+            }
+            # 联网来源没有页码, 但有 URL。前端(用户端 Chat / 管理端 AdminChat)是按
+            # "source 是否以 http(s) 开头"来决定"打开网页"还是"打开知识库文档"的,
+            # 不把 URL 带出去, 网页来源就会被当成库内文档, 点开跳到一个不存在的 docId。
+            if metadata.get("url"):
+                entry["source"] = metadata["url"]
+            sources.append(entry)
         # 回填每个文档命中的片段数 (例: 5 个 chunk 同属一篇 PDF → 该来源标 5)
         for s in sources:
             if s.get("doc_id") and s["doc_id"] in chunk_counts:
