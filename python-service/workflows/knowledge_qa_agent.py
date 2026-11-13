@@ -1,5 +1,5 @@
 from typing import Dict, Any, Optional, Generator
-from agent.events import EventBus, event_bus
+from core.events import EventBus, event_bus
 from workflows.retrieval_agent import RetrievalAgent
 from core.vector_store import vector_store
 from core.llm import LLMService

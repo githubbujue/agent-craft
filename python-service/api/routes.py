@@ -13,7 +13,7 @@ import logging
 import json
 import time
 import uuid
-from agent.events import EventBus, Event
+from core.events import EventBus, Event
 from core.run_context import set_run_id
 
 

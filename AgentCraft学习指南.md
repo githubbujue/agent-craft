@@ -3,6 +3,18 @@
 > 配合 [README.md](./README.md) 使用
 > README 告诉你"这个项目是什么"，本指南告诉你"怎么学、怎么用、怎么讲"
 
+> ⚠️ **2026-11-13 重要变更：本指南部分章节已过时**
+>
+> 项目已删除 `agent/` 下的编排骨架（`orchestrator.py` / `planner.py` / `executor.py` /
+> `state.py` / `policies.py` / `memory_agent.py`）—— 它们从未被任何入口调用；
+> `agent/` 现只保留事件总线，并已迁至 `core/events.py`。
+>
+> **本指南中所有涉及「Orchestrator / Planner / plan_steps / Executor / AgentState / 五层架构」
+> 的章节（亮点一、五层结构图、学习路径 Day1-5、代码示例、对比阅读建议）均已失效**，
+> 仅作为历史设计记录保留，不要照着它们读代码或写简历。
+>
+> 当前真实架构与准确表述请以 [项目简要介绍.md](./项目简要介绍.md) 为准。
+
 ---
 
 ## 目录
@@ -286,7 +298,7 @@ Tool 体系设计：
 系统内置 runId/traceId 全链路追踪，通过 EventBus 事件驱动机制实现完整可观测性。
 
 ```
-事件驱动追踪（agent/events.py）：
+事件驱动追踪（core/events.py）：
 
   事件类型：
   ├── RunStartedEvent    → Agent 开始执行
@@ -391,18 +403,16 @@ AI 基础
 ```
 LangGraph 的概念              AgentCraft 的对应实现               文件位置
 ────────────────────────────────────────────────────────────────────────────
-State Graph（状态图）      →  AgentState + StepType 状态机        agent/state.py
-Node（节点）               →  Executor.execute_step()             agent/executor.py
-Edge（边/条件路由）        →  Planner.plan_steps() +              agent/planner.py
-                              should_terminate()
+Router / 条件边            →  RouterAgent.route()                 workflows/router_agent.py
+                              意图→TaskType, 复杂度触发升级         intent/classifier.py
 Tool Node（工具节点）      →  ToolRegistry.invoke_tool()          tools/registry.py
-Memory（记忆）             →  四层记忆体系                         tools/memory_read.py
-                              AgentState/Redis/MySQL/向量库        tools/memory_write.py
-Checkpoint（检查点）       →  EventBus 事件追踪 + runId/traceId   agent/events.py
-Multi-Agent（多智能体）    →  Router Agent + 6 个专业 Agent        workflows/*.py
-Command（节点返回值）      →  step.output_data                     agent/state.py
-Conditional Edge           →  Planner.should_terminate()           agent/planner.py
-                              返回 (bool, reason)
+                              统一超时 / 重试
+Memory（记忆）             →  会话记忆（Redis）+ 用户画像          tools/memory_read.py
+                                                                    tools/memory_write.py
+Checkpoint（检查点）       →  EventBus 事件追踪 + runId/traceId   core/events.py
+Multi-Agent（多智能体）    →  Router + 7 个专业 Agent              workflows/*.py
+评估节点                   →  充分性 / 答案质量 / 忠实度三层        core/retrieval_evaluator.py
+                                                                    core/faithfulness_judge.py
 ```
 
 ### 技术边界说明（重要，先看这个）
@@ -411,7 +421,7 @@ Conditional Edge           →  Planner.should_terminate()           agent/plann
 
 | 层次 | 实现方式 | 涉及文件 |
 |------|---------|---------|
-| **Agent 编排层**<br>状态机 / 规划器 / 执行器 / 工具注册 / 事件总线 / 评估层 / 全链路留痕 | ✅ **全部自己实现**<br>未使用 LangGraph 等编排框架 | `agent/state.py` `agent/planner.py` `agent/executor.py` `agent/events.py` `tools/registry.py` `core/run_recorder.py` `core/retrieval_evaluator.py` `core/faithfulness_judge.py` |
+| **Agent 编排层**<br>意图路由 / 流程编排 / 工具注册 / 事件总线 / 评估层 / 全链路留痕 | ✅ **全部自己实现**<br>未使用 LangGraph 等编排框架 | `intent/classifier.py` `workflows/*` `tools/registry.py` `core/events.py` `core/run_recorder.py` `core/retrieval_evaluator.py` `core/faithfulness_judge.py` |
 | **基础设施层**<br>LLM 调用 / Prompt 模板 / 输出解析 / 文档加载 / 文本切分 / 向量库封装 / Embedding | 📦 **使用 LangChain 成熟组件** | `core/llm.py` `core/parser.py` `core/text_splitter.py` `core/vector_store.py` |
 
 **为什么这样分工**：编排逻辑是理解 Agent 的关键，值得自己写；基础设施已有成熟标准，重复造轮子没有收益。这也是实际工程中的常规做法 —— 把精力放在业务价值最高的地方。
@@ -529,7 +539,7 @@ Day 3: 其他 Agent          → workflows/chitchat_agent.py
                              workflows/ops_agent.py
                              workflows/inspection_agent.py
                              workflows/reasoning_agent.py
-Day 4-5: EventBus          → agent/events.py
+Day 4-5: EventBus          → core/events.py
 
 验证：能画出完整的多 Agent 协作流程图
 ```

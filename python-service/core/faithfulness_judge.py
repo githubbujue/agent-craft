@@ -26,7 +26,7 @@ import re
 import threading
 import time
 
-from agent.events import EventBus, Event
+from core.events import EventBus, Event
 from core.config import config
 from core.run_context import get_run_id
 

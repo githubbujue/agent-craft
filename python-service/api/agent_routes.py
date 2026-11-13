@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from workflows import RouterAgent
-from agent.events import event_bus, Event
+from core.events import event_bus, Event
 from typing import Optional, List, Dict, Any
 from collections import defaultdict
 import time

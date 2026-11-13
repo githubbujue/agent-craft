@@ -26,7 +26,7 @@ import threading
 
 import mysql.connector
 
-from agent.events import EventBus, Event
+from core.events import EventBus, Event
 from core.config import config
 
 # 事件类型 -> agent_step.step_name (对人更友好)

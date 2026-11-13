@@ -6,7 +6,7 @@ from workflows.admin_copilot_agent import AdminCopilotAgent
 from workflows.inspection_agent import InspectionAgent
 from workflows.retrieval_agent import RetrievalAgent
 from intent.classifier import IntentClassifier, IntentType
-from agent.events import EventBus, Event
+from core.events import EventBus, Event
 from core.run_context import get_run_id
 import logging
 import json

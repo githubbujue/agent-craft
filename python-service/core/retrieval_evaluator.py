@@ -15,7 +15,7 @@ import logging
 import time
 from dataclasses import dataclass
 
-from agent.events import EventBus, Event
+from core.events import EventBus, Event
 from core.run_context import get_run_id
 
 logger = logging.getLogger(__name__)
