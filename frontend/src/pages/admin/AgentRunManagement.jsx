@@ -11,7 +11,10 @@ const statusColors = {
   COMPLETED: COLOR.success,
   FAILED: COLOR.danger,
   INTERRUPTED: COLOR.warning,
-  WAITING: COLOR.accent
+  WAITING: COLOR.accent,
+  // 后端在"联网补救被跳过"(tool 模式缺 key / 开关关闭)时写 SKIPPED,
+  // 不补这一项会拼出 statusColors[x]+'20' = 'undefined20' 的无效底色, 标签也是空白
+  SKIPPED: COLOR.disabled
 };
 
 const statusLabels = {
@@ -20,7 +23,8 @@ const statusLabels = {
   COMPLETED: '已完成',
   FAILED: '失败',
   INTERRUPTED: '已中断',
-  WAITING: '等待中'
+  WAITING: '等待中',
+  SKIPPED: '已跳过'
 };
 
 // 耗时人性化: 1s 以上显示秒 (主流 Trace 工具的做法)
