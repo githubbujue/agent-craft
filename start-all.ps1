@@ -28,15 +28,19 @@ Start-Process -FilePath $redisExe -ArgumentList "--port", "6379" -WindowStyle Hi
 Write-Host "  started (hidden)"
 
 Write-Host "== [3/5] Java backend (8080) ==" -ForegroundColor Cyan
-Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "java -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -jar target\ai-knowledge-system-0.0.1-SNAPSHOT.jar > logs\java.log 2>&1" -WorkingDirectory $root -WindowStyle Hidden
+# chcp 65001: 让子进程的控制台代码页为 UTF-8, 与 start-all.bat 保持一致
+# (在窗口里直接看输出时中文才正常)。注意日志文件本身的编码由进程自己决定 ——
+# Python 侧配了 PYTHONUTF8/PYTHONIOENCODING, 写出的就是 UTF-8; 用 Get-Content 读取时
+# 必须加 -Encoding UTF8, 否则 PowerShell 5.1 会按 ANSI 解码, 中文显示成"妯″紡"这类乱码。
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "chcp 65001 >nul && java -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -jar target\ai-knowledge-system-0.0.1-SNAPSHOT.jar > logs\java.log 2>&1" -WorkingDirectory $root -WindowStyle Hidden
 Write-Host "  started (hidden)"
 
 Write-Host "== [4/5] Python AI service (8000) ==" -ForegroundColor Cyan
-Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "set PYTHONUTF8=1&& venv\Scripts\python -m uvicorn main:app --host 127.0.0.1 --port 8000 > logs\python.log 2>&1" -WorkingDirectory (Join-Path $root "python-service") -WindowStyle Hidden
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "chcp 65001 >nul && set PYTHONUTF8=1&& set PYTHONIOENCODING=utf-8&& venv\Scripts\python -m uvicorn main:app --host 127.0.0.1 --port 8000 > logs\python.log 2>&1" -WorkingDirectory (Join-Path $root "python-service") -WindowStyle Hidden
 Write-Host "  started (hidden)"
 
 Write-Host "== [5/5] React frontend (3000) ==" -ForegroundColor Cyan
-Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "npm run dev > logs\frontend.log 2>&1" -WorkingDirectory (Join-Path $root "frontend") -WindowStyle Hidden
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "chcp 65001 >nul && npm run dev > logs\frontend.log 2>&1" -WorkingDirectory (Join-Path $root "frontend") -WindowStyle Hidden
 Write-Host "  started (hidden)"
 
 Write-Host ""
@@ -45,7 +49,8 @@ Write-Host "  User:    http://localhost:3000/login"
 Write-Host "  Admin:   http://localhost:3000/admin/login"
 Write-Host ""
 Write-Host "Tail a service log in THIS terminal:"
-Write-Host "  Get-Content .\logs\python.log -Wait -Tail 30"   -ForegroundColor Yellow
-Write-Host "  Get-Content .\logs\java.log -Wait -Tail 30"      -ForegroundColor Yellow
-Write-Host "  Get-Content .\logs\frontend.log -Wait -Tail 30"  -ForegroundColor Yellow
+# 三个服务的日志落点不同(重定向相对各自的工作目录), 且必须 -Encoding UTF8 中文才不乱码
+Write-Host "  Get-Content .\python-service\logs\python.log -Encoding UTF8 -Wait -Tail 30" -ForegroundColor Yellow
+Write-Host "  Get-Content .\logs\java.log -Encoding UTF8 -Wait -Tail 30"                  -ForegroundColor Yellow
+Write-Host "  Get-Content .\frontend\logs\frontend.log -Encoding UTF8 -Wait -Tail 30"     -ForegroundColor Yellow
 Write-Host "Stop all: powershell -ExecutionPolicy Bypass -File .\stop-all.ps1"
