@@ -59,16 +59,26 @@ def _publish(event_type: str, data: dict) -> None:
 
 
 def publish_step(event_type: str, output: dict, duration_ms: float = None,
-                 input_text: str = None) -> None:
+                 input_text: str = None, status: str = None,
+                 error: str = None) -> None:
     """通用步骤留痕入口: 记忆读写/重排序/问题改写等非评估环节走同一通道
 
     调用方自测耗时, 本函数只负责封装与发布 —— 遥测零侵入业务。
+
+    status / error 为可选: 不传时行为与之前完全一致(落库为 COMPLETED)。
+    只有需要记录"后台补救任务失败"(如联网搜索报错)时才显式传入 ——
+    否则失败会被 fail-open 静默吞掉, 页面上与"压根没跑这一步"无法区分。
     """
-    _publish(event_type, {
+    data = {
         "input": (input_text or "")[:200],
         "output": output,
         "duration_ms": int(duration_ms) if duration_ms else None,
-    })
+    }
+    if status:
+        data["status"] = status
+    if error:
+        data["error"] = error
+    _publish(event_type, data)
 
 
 def evaluate_retrieval(docs: list, question: str, chain: str = "",

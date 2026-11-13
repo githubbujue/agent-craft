@@ -26,7 +26,8 @@ class LLMService:
             self.llm = None
         else:
             # 模型 / 端点均由配置注入(见 core/config.py), 默认走百炼兼容模式
-            # 切换模型: 在 .env 设置 LLM_MODEL 即可(如 qwen-plus / kimi-k2-0905-preview / deepseek-v3)
+            # 切换模型: 在 .env 设置 LLM_MODEL 即可(如 qwen-plus / deepseek-v4.1-flash / kimi-k3.1-pro)
+            # 注意模型名带版本号且会下架, 404 说明名字失效、403 FreeTierOnly 说明该模型额度用尽
             self.llm = ChatOpenAI(
                 model=config.LLM_MODEL,
                 api_key=api_key,
@@ -89,7 +90,8 @@ class LLMService:
      * @param conversation_context 对话上下文（可选）
      * @return LLM 的回答
      * """
-    def get_answer(self, question: str, context_docs: list, conversation_context: str = "") -> str:
+    def get_answer(self, question: str, context_docs: list, conversation_context: str = "",
+                   enable_search: bool = False) -> str:
         import time
         start_time = time.time()
         
@@ -106,7 +108,16 @@ class LLMService:
 
         # 处理知识库上下文
         if not context_docs:
-            knowledge_context = "（无相关知识库信息）"
+            if enable_search:
+                # 联网场景必须换掉"（无相关知识库信息）"这句 —— 实测它会
+                # 让模型认定"无资料可用", 从而忽略服务端注入的联网结果,
+                # 表现为"参数生效了却看不出效果"(退化成纯通用知识回答)。
+                # 换成引导句后, 模型会主动利用检索结果并注明信息来自网络。
+                knowledge_context = (
+                    "（知识库中无相关资料。请结合联网检索到的最新信息作答，"
+                    "并说明信息来自网络）")
+            else:
+                knowledge_context = "（无相关知识库信息）"
         else:
             knowledge_context = "\n\n".join([
                 doc.page_content if hasattr(doc, 'page_content') else str(doc)
@@ -124,14 +135,31 @@ class LLMService:
             | self.llm
             | StrOutputParser()
         )
+        prompt_args = {
+            "conversation_context": cleaned_context,
+            "knowledge_context": knowledge_context,
+            "question": processed_question
+        }
+        # 临时诊断: 确认 enable_search 是否真的传到位
+        config.logger.info(
+            f"[LLM-DIAG] get_answer: enable_search={enable_search}, "
+            f"docs={len(context_docs) if context_docs else 0}, "
+            f"kc={knowledge_context[:36]!r}")
 
         try:
             llm_start = time.time()
-            result = chain.invoke({
-                "conversation_context": cleaned_context,
-                "knowledge_context": knowledge_context,
-                "question": processed_question
-            })
+            if enable_search:
+                # enable_search 必须作为 invoke 的 kwargs 直接传给模型 ——
+                # 实测把它 bind 到 chain 上(prompt | llm.bind(extra_body=...) | parser)
+                # 该参数会在管道中丢失, 表现为"看起来开了联网其实没开"。
+                # 因此开网时绕开 chain, 手动组装 messages 后直接调用。
+                # (百炼在服务端完成检索并把结果注入 prompt, 费用走同一次调用的 token)
+                result = self.llm.invoke(
+                    self.prompt.format(**prompt_args),
+                    extra_body={"enable_search": True},
+                ).content
+            else:
+                result = chain.invoke(prompt_args)
             llm_time = time.time() - llm_start
             config.logger.info(f"LLM invocation completed in {llm_time:.4f}s")
             config.logger.info(f"LLM get_answer completed in {time.time() - start_time:.4f}s")
@@ -177,7 +205,8 @@ class LLMService:
      * @param conversation_context 对话上下文（可选）
      * @return 流式生成器，逐个token返回
      * """
-    def get_answer_stream(self, question: str, context_docs: list, conversation_context: str = "") -> Generator[str, None, None]:
+    def get_answer_stream(self, question: str, context_docs: list, conversation_context: str = "",
+                          enable_search: bool = False) -> Generator[str, None, None]:
         import time
         start_time = time.time()
         
@@ -195,7 +224,16 @@ class LLMService:
 
         # 处理知识库上下文
         if not context_docs:
-            knowledge_context = "（无相关知识库信息）"
+            if enable_search:
+                # 联网场景必须换掉"（无相关知识库信息）"这句 —— 实测它会
+                # 让模型认定"无资料可用", 从而忽略服务端注入的联网结果,
+                # 表现为"参数生效了却看不出效果"(退化成纯通用知识回答)。
+                # 换成引导句后, 模型会主动利用检索结果并注明信息来自网络。
+                knowledge_context = (
+                    "（知识库中无相关资料。请结合联网检索到的最新信息作答，"
+                    "并说明信息来自网络）")
+            else:
+                knowledge_context = "（无相关知识库信息）"
         else:
             knowledge_context = "\n\n".join([
                 doc.page_content if hasattr(doc, 'page_content') else str(doc)
@@ -213,6 +251,11 @@ class LLMService:
             | self.llm
             | StrOutputParser()
         )
+        prompt_args = {
+            "conversation_context": cleaned_context,
+            "knowledge_context": knowledge_context,
+            "question": processed_question
+        }
 
         try:
             # 发送开始信号
@@ -221,13 +264,20 @@ class LLMService:
             # 流式调用
             llm_start = time.time()
             full_response = ""
-            for chunk in chain.stream({
-                "conversation_context": cleaned_context,
-                "knowledge_context": knowledge_context,
-                "question": processed_question
-            }):
-                full_response += chunk
-                yield json.dumps({"type": "token", "content": chunk})
+            if enable_search:
+                # 同 get_answer: 开网时必须绕开 chain 直接传 extra_body,
+                # 否则参数会在管道中丢失(表现为"开了网却没搜")
+                for chunk in self.llm.stream(
+                    self.prompt.format(**prompt_args),
+                    extra_body={"enable_search": True},
+                ):
+                    text = chunk.content
+                    full_response += text
+                    yield json.dumps({"type": "token", "content": text})
+            else:
+                for chunk in chain.stream(prompt_args):
+                    full_response += chunk
+                    yield json.dumps({"type": "token", "content": chunk})
             llm_time = time.time() - llm_start
             config.logger.info(f"LLM stream invocation completed in {llm_time:.4f}s")
 

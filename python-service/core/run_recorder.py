@@ -40,6 +40,7 @@ _STEP_NAME = {
     "answer_generated": "答案生成",
     "faithfulness_evaluated": "忠实度评估",
     "memory_write": "记忆写入",
+    "web_search": "联网搜索",
 }
 
 

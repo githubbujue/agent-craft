@@ -7,6 +7,7 @@ from core.vector_store import vector_store
 from core.llm import LLMService
 from core.retrieval_evaluator import evaluate_retrieval, evaluate_answer, publish_step
 from core.faithfulness_judge import trigger_faithfulness_judge
+from core.config import config
 from tools.registry import tool_registry
 import logging
 import json
@@ -115,13 +116,29 @@ class KnowledgeQAAgent:
         # 评估层：检索充分性判断（事件留痕，为降级策略提供依据）
         sufficiency = evaluate_retrieval(docs, question, chain="L1", search_ms=search_ms)
 
+        # 知识库零命中 → 联网补救; 拿不到才走下面的"通用知识兜底"
+        used_web = False
+        enable_search = False
+        if not docs:
+            if config.WEB_SEARCH_MODE == "tool":
+                # tool 模式: 本项目自己搜, 能拿到来源链接
+                docs = self._try_web_search(question, chain="L1")
+                used_web = bool(docs)
+            elif config.WEB_SEARCH_MODE == "bailian":
+                # bailian 模式: 交给百炼服务端检索(无需额外 key, 但拿不到结构化来源)
+                enable_search = True
+                used_web = True
+                self._publish_bailian_search(question, chain="L1")
+                logger.info("[WebSearch][L1] bailian 模式: 将 enable_search=True 传给 LLM")
+
         if not docs:
             # 兜底策略：知识库无资料仍走 LLM 通用知识回答（而非冷拒绝），
             # 保证任何路径都有完整轨迹 + 有温度的回答
             # 兜底同样是一次真实 LLM 调用, 也要计耗时并传给 evaluate_answer,
             # 否则零命中时"答案生成"步骤会落成 0ms(此前漏传 gen_ms)
             _g0 = time.time()
-            answer = self.llm_service.get_answer(question, [], full_context)
+            answer = self.llm_service.get_answer(question, [], full_context,
+                                                 enable_search=enable_search)
             gen_ms = (time.time() - _g0) * 1000
             self._save_to_memory(conversation_id, question, answer)
             return {"answer": answer, "sources": [], "has_sources": False,
@@ -134,8 +151,13 @@ class KnowledgeQAAgent:
         _g0 = time.time()
         answer = self.llm_service.get_answer(question, docs, full_context)
         gen_ms = (time.time() - _g0) * 1000
-        # 降级策略：检索到内容但充分性不足 → 明确提示，防止用户当作权威答案
-        if not sufficiency.is_sufficient:
+        # 降级提示分两种, 不能混用一句话:
+        #   联网补救 → 如实说明"来自联网搜索"
+        #   只有知识库且不充分 → 沿用原提示
+        # (原提示说的是"知识库内容有限", 而网页本来就不是知识库, 套用会误导用户)
+        if used_web:
+            answer = "🌐 知识库中未找到相关资料，以下内容来自联网搜索，仅供参考。\n\n" + answer
+        elif not sufficiency.is_sufficient:
             answer = "❗知识库中相关内容有限，以下回答仅供参考。\n\n" + answer
         sources = self._build_sources(docs)
         # 先评估后写记忆 —— 保证轨迹时序: 答案生成 → 记忆写入
@@ -174,11 +196,26 @@ class KnowledgeQAAgent:
         sufficiency = evaluate_retrieval(docs, question, chain="L2",
                                          publish_retrieval_event=False)
 
+        # 知识库零命中 → 联网补救; 拿不到才走下面的"通用知识兜底"
+        used_web = False
+        enable_search = False
+        if not docs:
+            if config.WEB_SEARCH_MODE == "tool":
+                # tool 模式: 本项目自己搜, 能拿到来源链接
+                docs = self._try_web_search(question, chain="L2")
+                used_web = bool(docs)
+            elif config.WEB_SEARCH_MODE == "bailian":
+                # bailian 模式: 交给百炼服务端检索(无需额外 key, 但拿不到结构化来源)
+                enable_search = True
+                used_web = True
+                self._publish_bailian_search(question, chain="L2")
+
         if not docs:
             # 兜底策略：同 L1 —— 知识库无资料仍走 LLM 通用知识回答
             # gen_ms 同 L1: 兜底也是真实 LLM 调用, 不传会让"答案生成"落成 0ms
             _g0 = time.time()
-            answer = self.llm_service.get_answer(question, [], full_context)
+            answer = self.llm_service.get_answer(question, [], full_context,
+                                                 enable_search=enable_search)
             gen_ms = (time.time() - _g0) * 1000
             self._save_to_memory(conversation_id, question, answer)
             return {"answer": answer, "sources": [], "has_sources": False,
@@ -203,8 +240,10 @@ class KnowledgeQAAgent:
         _g0 = time.time()
         answer = self.llm_service.get_answer(question, llm_docs, full_context)
         gen_ms = (time.time() - _g0) * 1000
-        # 降级策略：同 L1
-        if not sufficiency.is_sufficient:
+        # 降级提示: 同 L1 —— 联网来源必须如实标注, 不能套用"知识库内容有限"
+        if used_web:
+            answer = "🌐 知识库中未找到相关资料，以下内容来自联网搜索，仅供参考。\n\n" + answer
+        elif not sufficiency.is_sufficient:
             answer = "❗知识库中相关内容有限，以下回答仅供参考。\n\n" + answer
 
         # 来源列表: 不再走 citation_sources —— 引用整合器在答案生成前被调用
@@ -264,6 +303,82 @@ class KnowledgeQAAgent:
             if s.get("doc_id") and s["doc_id"] in chunk_counts:
                 s["chunk_count"] = chunk_counts[s["doc_id"]]
         return sources
+
+    def _try_web_search(self, question: str, chain: str) -> list:
+        """知识库零命中时的联网补救。
+
+        返回可直接喂给 LLM 的 Document 列表; 不可用 / 失败 / 零结果时返回 []。
+
+        全程 fail-open —— 联网是"补救手段", 任何异常都不得影响主链路;
+        但失败会以 FAILED 状态留痕, 避免又变成"失败与压根没跑长得一样"。
+        """
+        from langchain_core.documents import Document
+
+        _t0 = time.time()
+        if not tool_registry.has_tool("web_search"):
+            logger.warning(
+                f"[WebSearch][{chain}] skipped: tool 'web_search' not registered "
+                f"(WEB_SEARCH_MODE={config.WEB_SEARCH_MODE})")
+            return []
+        tool = tool_registry.get_tool("web_search")
+        # 未配 key / 开关关闭 → 直接跳过, 连网络调用都不发起
+        if not tool.is_available():
+            # 不能静默返回: mode=tool 是使用者明确选择过的,
+            # 缺 key 时整条链路消失, 现象与"根本没做联网功能"完全一致,
+            # 排查时极易误判成代码没生效 —— 所以既要打日志, 也要留 SKIPPED 轨迹
+            reason = ("WEB_SEARCH_ENABLED=false" if not config.WEB_SEARCH_ENABLED
+                      else "TAVILY_API_KEY is empty")
+            logger.warning(
+                f"[WebSearch][{chain}] skipped: {reason} "
+                f"(WEB_SEARCH_MODE={config.WEB_SEARCH_MODE}); "
+                f"set TAVILY_API_KEY, or switch WEB_SEARCH_MODE to 'bailian'")
+            publish_step("web_search",
+                         {"hits": 0, "chain": chain, "skipped": reason},
+                         duration_ms=(time.time() - _t0) * 1000,
+                         input_text=question, status="SKIPPED")
+            return []
+        try:
+            result = tool_registry.invoke_tool(
+                "web_search",
+                {"query": question, "top_k": config.WEB_SEARCH_TOP_K})
+        except Exception as e:
+            publish_step("web_search", {"hits": 0, "chain": chain},
+                         duration_ms=(time.time() - _t0) * 1000,
+                         input_text=question, status="FAILED", error=str(e)[:500])
+            logger.warning(f"[WebSearch][{chain}] failed (ignored): {e}")
+            return []
+
+        docs = []
+        for r in result.get("results", []):
+            docs.append(Document(
+                # 来源写进 page_content —— LLMService.get_answer 只读 page_content
+                # (不读 metadata), 放 metadata 里模型看不见, 也就无法正确标注引用
+                page_content=f"[网页来源: {r['title']} | {r['url']}]\n{r['snippet']}",
+                metadata={
+                    "doc_id": f"web:{r['url']}",
+                    "source": r["title"],
+                    "url": r["url"],
+                    "score": r.get("score") or 0,
+                },
+            ))
+
+        publish_step("web_search", {"hits": len(docs), "chain": chain},
+                     duration_ms=(time.time() - _t0) * 1000, input_text=question)
+        logger.info(f"[WebSearch][{chain}] {len(docs)} hits for: {question[:40]}")
+        return docs
+
+    def _publish_bailian_search(self, question: str, chain: str) -> None:
+        """bailian 模式(百炼服务端联网)的留痕。
+
+        与 tool 模式不同, 这里没有可独立测量的耗时 —— 检索在百炼侧完成, 时间已
+        并入紧随其后的答案生成。所以 duration_ms 留空(页面显示 -), 并在 output
+        里写明原因, 避免这一行被误读成"耗时没采集到"。
+        """
+        publish_step("web_search", {
+            "provider": "bailian_enable_search",
+            "chain": chain,
+            "note": "百炼服务端检索, 耗时已计入答案生成",
+        }, input_text=question)
 
     def _save_to_memory(self, conversation_id: str, question: str, answer: str):
         """保存对话到会话记忆"""
@@ -336,6 +451,25 @@ class KnowledgeQAAgent:
                     "content": "❗知识库中相关内容有限，以下回答仅供参考。\n\n"
                 }, ensure_ascii=False)
 
+            # 1.6 知识库零命中 → 联网补救(聊天页走的正是这条链路)
+            #     必须放在"构建引用来源"之前 —— 这样才能让后面的 sources 与
+            #     流式生成原样复用, 一行后续代码都不用改
+            stream_enable_search = False
+            if not docs:
+                if config.WEB_SEARCH_MODE == "tool":
+                    # tool 模式: 本项目自己搜, 能拿到来源链接
+                    docs = self._try_web_search(question, chain="STREAM")
+                elif config.WEB_SEARCH_MODE == "bailian":
+                    # bailian 模式: 交给百炼服务端检索(无需额外 key)
+                    stream_enable_search = True
+                    self._publish_bailian_search(question, chain="STREAM")
+
+                if docs or stream_enable_search:
+                    yield json.dumps({
+                        "type": "token",
+                        "content": "🌐 知识库中未找到相关资料，以下内容来自联网搜索，仅供参考。\n\n"
+                    }, ensure_ascii=False)
+
             # 2. 构建引用来源（按 doc_id 去重）
             seen_doc_ids = set()
             sources = []
@@ -359,7 +493,8 @@ class KnowledgeQAAgent:
             for chunk in self.llm_service.get_answer_stream(
                 question=question,
                 context_docs=docs,
-                conversation_context=context
+                conversation_context=context,
+                enable_search=stream_enable_search
             ):
                 answer_parts.append(chunk)
                 yield chunk

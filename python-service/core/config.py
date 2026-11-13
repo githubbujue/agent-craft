@@ -9,6 +9,9 @@ class ConfigManager:
         """初始化配置管理器"""
         self._load_config()
         self._setup_logging()
+        # 此前 validate_config 定义了却从未被调用, 校验形同虚设;
+        # 联网配置的"静默失效"正是靠它在启动期暴露, 否则只能等请求回来才发现
+        self.validate_config()
     
     def _load_config(self):
         """加载配置项"""
@@ -21,7 +24,9 @@ class ConfigManager:
 
         # LLM（对话模型）Configuration —— 走百炼 OpenAI 兼容端点
         # 同一端点兼容通义 / DeepSeek / Kimi 等托管模型, 换模型只需改 LLM_MODEL, 无需动代码
-        self.LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4-flash-0731")
+        # 注意: 百炼托管模型名带版本号, 下架后调用会 403/404(如 deepseek-v4-flash-0731 已下架),
+        # 换模型优先看控制台「免费额度」列表里的在线 model code
+        self.LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4.1-flash")
         self.LLM_BASE_URL = os.getenv(
             "LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
         # 切到其他厂商时可单独配 LLM_API_KEY; 不配则沿用 DASHSCOPE_API_KEY(向后兼容)
@@ -54,6 +59,24 @@ class ConfigManager:
         # Rerank Configuration
         self.RERANKER_TYPE = os.getenv("RERANKER_TYPE", "simple")
         self.COHERE_API_KEY = os.getenv("COHERE_API_KEY", "")
+
+        # Web Search Configuration (知识库零命中时的联网补救 —— 可选能力)
+        # 开关默认 true, 但真正生效还需要 TAVILY_API_KEY; 没配 key 时整条链路自动跳过。
+        # 之所以"默认开"而不是"默认关": 不必让使用者记着去改开关, 配了 key 即生效,
+        # 而未配置的环境行为与加此功能前完全一致(见 tools/web_search.py 的 is_available)
+        self.WEB_SEARCH_ENABLED = os.getenv(
+            "WEB_SEARCH_ENABLED", "true").lower() == "true"
+        # 联网方式:
+        #   bailian —— 给 LLM 传 enable_search, 由百炼服务端检索(默认, 零配置即可用;
+        #              代价: 拿不到结构化来源, 且搜索结果会撑大 prompt_tokens)
+        #   tool    —— 调用本项目 WebSearchTool(需配搜索服务 key, 能拿到来源链接)
+        #   off     —— 不联网
+        self.WEB_SEARCH_MODE = os.getenv("WEB_SEARCH_MODE", "bailian")
+        self.WEB_SEARCH_PROVIDER = os.getenv("WEB_SEARCH_PROVIDER", "tavily")
+        self.TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
+        # 8s 上限: 联网是"补救手段", 宁可放弃也不能拖慢主链路
+        self.WEB_SEARCH_TIMEOUT_MS = int(os.getenv("WEB_SEARCH_TIMEOUT_MS", "8000"))
+        self.WEB_SEARCH_TOP_K = int(os.getenv("WEB_SEARCH_TOP_K", "5"))
 
         # Faithfulness Judge Configuration (LLM-as-judge 内容忠实度评估 —— 评估层第 3 层)
         # 默认开启 + 全量采样(本地开发便于观察); 生产可调低采样率控制 token 成本
@@ -113,6 +136,12 @@ class ConfigManager:
             "LLM_MODEL": self.LLM_MODEL,
             "LLM_BASE_URL": self.LLM_BASE_URL,
             "RERANKER_TYPE": self.RERANKER_TYPE,
+            "WEB_SEARCH_ENABLED": self.WEB_SEARCH_ENABLED,
+            "WEB_SEARCH_MODE": self.WEB_SEARCH_MODE,
+            "WEB_SEARCH_PROVIDER": self.WEB_SEARCH_PROVIDER,
+            "TAVILY_API_KEY": "***" if self.TAVILY_API_KEY else "",
+            "WEB_SEARCH_TIMEOUT_MS": self.WEB_SEARCH_TIMEOUT_MS,
+            "WEB_SEARCH_TOP_K": self.WEB_SEARCH_TOP_K,
             "FAITHFULNESS_JUDGE_ENABLED": self.FAITHFULNESS_JUDGE_ENABLED,
             "FAITHFULNESS_JUDGE_SAMPLE_RATE": self.FAITHFULNESS_JUDGE_SAMPLE_RATE,
             "CHUNK_STRATEGY": self.CHUNK_STRATEGY,
@@ -138,7 +167,23 @@ class ConfigManager:
         # 验证Tesseract路径（空值表示由 parser.py 自动检测）
         if self.TESSERACT_PATH and not os.path.exists(self.TESSERACT_PATH):
             self.logger.warning(f"Tesseract not found at {self.TESSERACT_PATH}, will try other locations")
-        
+
+        # 联网补救配置 —— 启动期就要"大声"报出来:
+        # mode=tool 但没配 key 时, 每次知识库零命中都会静默跳过联网,
+        # 与"压根没接联网"现象一致, 等请求回来再查要多绕一大圈
+        _valid_modes = ("bailian", "tool", "off")
+        if self.WEB_SEARCH_MODE not in _valid_modes:
+            self.logger.warning(
+                f"WEB_SEARCH_MODE='{self.WEB_SEARCH_MODE}' is invalid "
+                f"(expected one of {list(_valid_modes)}), web search will be skipped")
+        elif not self.WEB_SEARCH_ENABLED:
+            self.logger.info("WEB_SEARCH_ENABLED=false, web search disabled")
+        elif self.WEB_SEARCH_MODE == "tool" and not self.TAVILY_API_KEY:
+            self.logger.warning(
+                "WEB_SEARCH_MODE=tool but TAVILY_API_KEY is empty — "
+                "web search will be SILENTLY SKIPPED on every knowledge-base miss. "
+                "Set TAVILY_API_KEY, or switch WEB_SEARCH_MODE to 'bailian'")
+
         return is_valid
 
 # 创建全局配置实例
