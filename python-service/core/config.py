@@ -164,9 +164,25 @@ class ConfigManager:
         if not self.DASHSCOPE_API_KEY:
             self.logger.warning("DASHSCOPE_API_KEY not set, will use local embeddings")
         
-        # 验证Tesseract路径（空值表示由 parser.py 自动检测）
+        # Tesseract 路径探测: 未显式配置时按常见安装位置回填 self.TESSERACT_PATH。
+        # 必须在 config 初始化期间完成 —— core/llm.py 在模块导入时读这个值来设置
+        # pytesseract 的可执行文件路径; 而 parser.py 的 setup_tesseract() 是模块级副作用,
+        # 若某条链路只走问答、不解析文档(不导入 parser), OCR 会直接抛 TesseractNotFoundError。
         if self.TESSERACT_PATH and not os.path.exists(self.TESSERACT_PATH):
             self.logger.warning(f"Tesseract not found at {self.TESSERACT_PATH}, will try other locations")
+            self.TESSERACT_PATH = ""
+        if not self.TESSERACT_PATH:
+            for _candidate in (
+                r"C:/Program Files/Tesseract-OCR/tesseract.exe",
+                r"C:/Program Files (x86)/Tesseract-OCR/tesseract.exe",
+                "E:/Tesseract-OCR/tesseract.exe",
+                "/usr/bin/tesseract",
+                "/usr/local/bin/tesseract",
+            ):
+                if os.path.exists(_candidate):
+                    self.TESSERACT_PATH = _candidate
+                    self.logger.info(f"Tesseract resolved to: {_candidate}")
+                    break
 
         # 联网补救配置 —— 启动期就要"大声"报出来:
         # mode=tool 但没配 key 时, 每次知识库零命中都会静默跳过联网,
