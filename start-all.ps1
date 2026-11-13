@@ -1,12 +1,13 @@
-# AgentCraft one-click background start: all services run as hidden processes, no popup windows
+﻿# AgentCraft one-click background start: all services run as hidden processes, no popup windows
 # Usage: powershell -ExecutionPolicy Bypass -File .\start-all.ps1
-# Tail logs: Get-Content .\logs\python.log -Wait -Tail 30   (same for java/frontend/redis)
+# Tail logs: Get-Content .\logs\python.log -Encoding UTF8 -Wait -Tail 30  (java/frontend/redis 同理)
 $ErrorActionPreference = "SilentlyContinue"
 $root = $PSScriptRoot
+# 所有服务日志统一收敛到 <root>\logs\ (历史日志归档在 logs\archive\),
+# 避免 java / python / frontend 各写一处, 排查时要分头找
 $logs = Join-Path $root "logs"
 New-Item -ItemType Directory -Force -Path $logs | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $root "python-service\logs") | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $root "frontend\logs") | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $logs "archive") | Out-Null
 
 Write-Host "== [0/5] Killing old instances ==" -ForegroundColor Cyan
 taskkill /IM redis-server.exe /F 2>$null | Out-Null
@@ -28,29 +29,33 @@ Start-Process -FilePath $redisExe -ArgumentList "--port", "6379" -WindowStyle Hi
 Write-Host "  started (hidden)"
 
 Write-Host "== [3/5] Java backend (8080) ==" -ForegroundColor Cyan
-# chcp 65001: 让子进程的控制台代码页为 UTF-8, 与 start-all.bat 保持一致
-# (在窗口里直接看输出时中文才正常)。注意日志文件本身的编码由进程自己决定 ——
-# Python 侧配了 PYTHONUTF8/PYTHONIOENCODING, 写出的就是 UTF-8; 用 Get-Content 读取时
-# 必须加 -Encoding UTF8, 否则 PowerShell 5.1 会按 ANSI 解码, 中文显示成"妯″紡"这类乱码。
-Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "chcp 65001 >nul && java -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -jar target\ai-knowledge-system-0.0.1-SNAPSHOT.jar > logs\java.log 2>&1" -WorkingDirectory $root -WindowStyle Hidden
-Write-Host "  started (hidden)"
+# 重定向写的是绝对路径: 子进程的工作目录各不相同(java 在根、python 在 python-service、
+# frontend 在 frontend), 以前用相对路径 logs\x.log 就变成了三个不同的物理目录。
+# chcp 65001: 让子进程控制台代码页为 UTF-8; 日志文件编码由进程自己决定,
+# 用 Get-Content 读取时必须加 -Encoding UTF8, 否则 PowerShell 5.1 按 ANSI 解码会显示乱码。
+$javaLog = Join-Path $logs "java.log"
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c", ('chcp 65001 >nul && java -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -jar target\ai-knowledge-system-0.0.1-SNAPSHOT.jar > "' + $javaLog + '" 2>&1') -WorkingDirectory $root -WindowStyle Hidden
+Write-Host ("  started (hidden) -> " + $javaLog)
 
 Write-Host "== [4/5] Python AI service (8000) ==" -ForegroundColor Cyan
-Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "chcp 65001 >nul && set PYTHONUTF8=1&& set PYTHONIOENCODING=utf-8&& venv\Scripts\python -m uvicorn main:app --host 127.0.0.1 --port 8000 > logs\python.log 2>&1" -WorkingDirectory (Join-Path $root "python-service") -WindowStyle Hidden
-Write-Host "  started (hidden)"
+$pythonLog = Join-Path $logs "python.log"
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c", ('chcp 65001 >nul && set PYTHONUTF8=1&& set PYTHONIOENCODING=utf-8&& venv\Scripts\python -m uvicorn main:app --host 127.0.0.1 --port 8000 > "' + $pythonLog + '" 2>&1') -WorkingDirectory (Join-Path $root "python-service") -WindowStyle Hidden
+Write-Host ("  started (hidden) -> " + $pythonLog)
 
 Write-Host "== [5/5] React frontend (3000) ==" -ForegroundColor Cyan
-Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "chcp 65001 >nul && npm run dev > logs\frontend.log 2>&1" -WorkingDirectory (Join-Path $root "frontend") -WindowStyle Hidden
-Write-Host "  started (hidden)"
+$frontendLog = Join-Path $logs "frontend.log"
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c", ('chcp 65001 >nul && npm run dev > "' + $frontendLog + '" 2>&1') -WorkingDirectory (Join-Path $root "frontend") -WindowStyle Hidden
+Write-Host ("  started (hidden) -> " + $frontendLog)
 
 Write-Host ""
 Write-Host "All services started in background. Ready in ~30-40s:" -ForegroundColor Green
 Write-Host "  User:    http://localhost:3000/login"
 Write-Host "  Admin:   http://localhost:3000/admin/login"
 Write-Host ""
-Write-Host "Tail a service log in THIS terminal:"
-# 三个服务的日志落点不同(重定向相对各自的工作目录), 且必须 -Encoding UTF8 中文才不乱码
-Write-Host "  Get-Content .\python-service\logs\python.log -Encoding UTF8 -Wait -Tail 30" -ForegroundColor Yellow
-Write-Host "  Get-Content .\logs\java.log -Encoding UTF8 -Wait -Tail 30"                  -ForegroundColor Yellow
-Write-Host "  Get-Content .\frontend\logs\frontend.log -Encoding UTF8 -Wait -Tail 30"     -ForegroundColor Yellow
+Write-Host "Logs: .\logs\  (history: .\logs\archive\)" -ForegroundColor Cyan
+Write-Host "Tail a service log in THIS terminal (-Encoding UTF8 必带, 否则中文乱码):"
+Write-Host "  Get-Content .\logs\python.log   -Encoding UTF8 -Wait -Tail 30" -ForegroundColor Yellow
+Write-Host "  Get-Content .\logs\java.log     -Encoding UTF8 -Wait -Tail 30" -ForegroundColor Yellow
+Write-Host "  Get-Content .\logs\frontend.log -Encoding UTF8 -Wait -Tail 30" -ForegroundColor Yellow
+Write-Host "  Get-Content .\logs\redis.log    -Encoding UTF8 -Wait -Tail 30" -ForegroundColor Yellow
 Write-Host "Stop all: powershell -ExecutionPolicy Bypass -File .\stop-all.ps1"
