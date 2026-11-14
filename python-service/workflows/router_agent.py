@@ -111,7 +111,7 @@ class RouterAgent:
 
             elif task_type == TaskType.REASONING:
                 return self.reasoning_agent.reason(
-                    input_text, context, conversation_id
+                    input_text, context, conversation_id, user_id
                 )
 
             else:
@@ -184,14 +184,22 @@ class RouterAgent:
                     yield event
 
             elif task_type == TaskType.REASONING:
+                # L3 本身不是流式（先分解再汇总），但事件契约必须与 L1/L2 同构。
+                # 此前只发 {"type": "answer"}: Java 的落库 switch 与前端 Chat.jsx 的
+                # switch 都只认 token/end，于是复杂问题的回答既不显示也不落库,
+                # 刷新后直接消失 —— 用户侧表现是"复杂问题没有回答"。
                 result = self.reasoning_agent.reason(
-                    input_text, context, conversation_id
+                    input_text, context, conversation_id, user_id
                 )
-                yield json.dumps({
-                    "type": "answer",
-                    "content": result.get("answer", ""),
-                    "sources": result.get("sources", [])
-                })
+                answer = result.get("answer", "")
+                if answer:
+                    yield json.dumps({"type": "token", "content": answer}, ensure_ascii=False)
+                sources = result.get("sources") or []
+                if sources:
+                    yield json.dumps({"type": "sources", "sources": sources,
+                                      "task_type": "reasoning"}, ensure_ascii=False)
+                yield json.dumps({"type": "end", "content": answer,
+                                  "task_type": "reasoning"}, ensure_ascii=False)
 
             else:
                 for event in self.knowledge_qa_agent.ask_stream(

@@ -3,6 +3,7 @@ from core.llm import LLMService
 from core.vector_store import vector_store
 from core.retrieval_evaluator import evaluate_retrieval, evaluate_answer, publish_step
 from core.faithfulness_judge import trigger_faithfulness_judge
+from core.preference_context import format_user_memory
 from tools.registry import tool_registry
 import logging
 import json
@@ -19,7 +20,7 @@ class ReasoningAgent:
         self.vector_store = vector_store
 
     def reason(self, question: str, context: str = "",
-               conversation_id: str = None) -> Dict[str, Any]:
+               conversation_id: str = None, user_id: str = None) -> Dict[str, Any]:
         """执行推理流程：分解 → 逐个检索+推理 → 汇总"""
         logger.info(f"[ReasoningAgent] Starting reasoning for: {question[:50]}...")
 
@@ -52,6 +53,13 @@ class ReasoningAgent:
             if conversation_history:
                 full_context = (f"{context}\n\n{conversation_history}"
                                 if context else conversation_history)
+
+            # 0.5 用户长期偏好：与 L1/L2 共用 core/preference_context
+            #     L3 此前只写不读，用户说"后面都给我表格"时复杂问题仍不用表格
+            user_memory_text = format_user_memory(user_id)
+            if user_memory_text:
+                block = f"[用户长期偏好] {user_memory_text}"
+                full_context = f"{full_context}\n\n{block}" if full_context else block
 
             # Step 1：问题分解
             sub_questions = self._decompose_question(question)

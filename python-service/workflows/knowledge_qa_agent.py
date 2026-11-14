@@ -7,6 +7,7 @@ from core.llm import LLMService
 from core.retrieval_evaluator import evaluate_retrieval, evaluate_answer, publish_step
 from core.faithfulness_judge import trigger_faithfulness_judge
 from core.config import config
+from core.preference_context import USER_MEMORY_MIN_CONFIDENCE, format_user_memory
 from tools.registry import tool_registry
 import logging
 import json
@@ -39,8 +40,8 @@ _PREF_RULES = (
 # 2 个并发足够（同一用户很少连着两句都在提偏好）
 _pref_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pref-extract")
 
-# 读侧置信度下限：低于该值的记忆不注入 Prompt，避免一次误抽长期生效
-USER_MEMORY_MIN_CONFIDENCE = 0.6
+# 读侧置信度下限在 core/preference_context（L1/L2 与 L3 共用同一实现），
+# 这里 import 进来只为不破坏既有引用。
 
 
 class KnowledgeQAAgent:
@@ -83,65 +84,8 @@ class KnowledgeQAAgent:
         logger.info(f"[KnowledgeQAAgent] Processing question: {question[:50]}...")
 
         try:
-            # 1. 读取会话记忆作为上下文
-            #    只取最近 5 条原文：更早的历史由 Java 侧以摘要形式放进 context，
-            #    两边都传原文会让同一批对话在 Prompt 里重复（见 docs/记忆改造计划.md 阶段 1）
-            conversation_history = ""
-            if conversation_id and tool_registry.has_tool("conversation_memory_read"):
-                _mt0 = time.time()
-                try:
-                    history = tool_registry.invoke_tool(
-                        "conversation_memory_read",
-                        {"conversation_id": conversation_id, "limit": 5}
-                    )
-                    messages = history.get("messages", [])
-                    publish_step("memory_read", {
-                        "message_count": len(messages) if messages else 0,
-                        "compressed": history.get("compressed", False),
-                    }, duration_ms=(time.time() - _mt0) * 1000)
-                    if messages:
-                        conversation_history = self._format_history(messages)
-                        logger.info(f"[KnowledgeQAAgent] Loaded {len(messages)} messages from memory"
-                                    f" (compressed: {history.get('compressed', False)})")
-                except Exception as e:
-                    logger.warning(f"[KnowledgeQAAgent] Failed to read conversation memory: {e}")
-
-            # 1.5 读取用户长期偏好（MySQL user_memory，缺失或异常时静默跳过）
-            #     延迟 import：MySQL 不可用时不影响模块加载与问答主流程
-            user_memory_text = ""
-            if user_id:
-                try:
-                    from core.mysql_client import user_memory_client
-                    # 低于阈值的记忆不进 Prompt：抽取的误判若长期生效，比没有记忆更糟
-                    memories = user_memory_client.get_user_memory(
-                        str(user_id), min_confidence=USER_MEMORY_MIN_CONFIDENCE
-                    ) or {}
-                    if memories:
-                        # 写入的是 {"value":..., "quote":...}，注入 Prompt 只取 value，
-                        # 原话 quote 留在库里供排查，不占 Prompt 预算
-                        items = []
-                        for key, value in list(memories.items())[:10]:   # 最多 10 条
-                            if isinstance(value, dict) and "value" in value:
-                                value = value["value"]
-                            items.append((key, value))
-                        user_memory_text = json.dumps(dict(items), ensure_ascii=False)
-                        if len(user_memory_text) > 500:
-                            user_memory_text = user_memory_text[:500] + "..."
-                        logger.info(f"[KnowledgeQAAgent] Loaded {len(items)} user memory entries")
-                except Exception as e:
-                    # 长期记忆只是锦上添花，任何异常都不应影响问答主流程
-                    logger.warning(f"[KnowledgeQAAgent] Failed to load user memory: {e}")
-
-            # 合并上下文
-            full_context = context
-            if conversation_history:
-                full_context = f"{context}\n\n{conversation_history}" if context else conversation_history
-            if user_memory_text:
-                block = f"[用户长期偏好] {user_memory_text}"
-                full_context = f"{full_context}\n\n{block}" if full_context else block
-            logger.info(f"[KnowledgeQAAgent] prompt_context_len={len(full_context)} "
-                        f"(java_summary={len(context)}, redis_history={len(conversation_history)}, "
-                        f"user_memory={len(user_memory_text)})")
+            # 1. 读取会话记忆 + 用户长期偏好，合并成 Prompt 上下文（与流式链路共用同一实现）
+            full_context = self._build_full_context(conversation_id, user_id, context)
 
             # 2. 判断复杂度，选择链路
             complexity = self.router.classify_complexity(question)
@@ -536,6 +480,61 @@ class KnowledgeQAAgent:
             })
         return hits
 
+    def _read_conversation_history(self, conversation_id: Optional[str]) -> str:
+        """读最近 5 条原文。
+
+        只取最近 5 条：更早的历史由 Java 侧以摘要形式放进 context，
+        两边都传原文会让同一批对话在 Prompt 里重复（见 docs/记忆改造计划.md 阶段 1）。
+        """
+        if not conversation_id or not tool_registry.has_tool("conversation_memory_read"):
+            return ""
+
+        _mt0 = time.time()
+        try:
+            history = tool_registry.invoke_tool(
+                "conversation_memory_read",
+                {"conversation_id": conversation_id, "limit": 5}
+            )
+            messages = history.get("messages", [])
+            publish_step("memory_read", {
+                "message_count": len(messages) if messages else 0,
+                "compressed": history.get("compressed", False),
+            }, duration_ms=(time.time() - _mt0) * 1000)
+            if messages:
+                logger.info(f"[KnowledgeQAAgent] Loaded {len(messages)} messages from memory"
+                            f" (compressed: {history.get('compressed', False)})")
+                return self._format_history(messages)
+        except Exception as e:
+            logger.warning(f"[KnowledgeQAAgent] Failed to read conversation memory: {e}")
+        return ""
+
+    def _read_user_memory(self, user_id: Optional[str]) -> str:
+        """读用户长期偏好，实现见 core/preference_context（L1/L2 与 L3 共用）。"""
+        return format_user_memory(user_id)
+
+    def _build_full_context(self, conversation_id: Optional[str], user_id: Optional[str],
+                            context: str) -> str:
+        """会话记忆 + 用户偏好 + Java 摘要 → 最终 Prompt 上下文。
+
+        同步(ask)与流式(ask_stream)共用。此前流式链路自己拼上下文、且漏了记忆读取，
+        用户实际用的聊天页因此既读不到最近 5 条原文、也拿不到长期偏好，
+        而这一切是静默的 —— 只在回答质量上表现为"像失忆"。
+        """
+        conversation_history = self._read_conversation_history(conversation_id)
+        user_memory_text = self._read_user_memory(user_id)
+
+        full_context = context
+        if conversation_history:
+            full_context = f"{context}\n\n{conversation_history}" if context else conversation_history
+        if user_memory_text:
+            block = f"[用户长期偏好] {user_memory_text}"
+            full_context = f"{full_context}\n\n{block}" if full_context else block
+
+        logger.info(f"[KnowledgeQAAgent] prompt_context_len={len(full_context)} "
+                    f"(java_summary={len(context)}, redis_history={len(conversation_history)}, "
+                    f"user_memory={len(user_memory_text)})")
+        return full_context
+
     def _format_history(self, messages: list) -> str:
         """格式化对话历史为上下文字符串"""
         if not messages:
@@ -565,6 +564,11 @@ class KnowledgeQAAgent:
         logger.info(f"[KnowledgeQAAgent] Stream processing question: {question[:50]}...")
 
         try:
+            # 0. 会话记忆 + 用户长期偏好（与同步链路共用同一实现）
+            #    此前流式链路完全没有这一步, 聊天页既读不到最近 5 条原文、
+            #    也拿不到"用户偏好用表格"这类记忆, 表现是回答像失忆。
+            full_context = self._build_full_context(conversation_id, user_id, context)
+
             # 1. 直接向量检索
             _t0 = time.time()
             docs = self.vector_store.search(
@@ -628,7 +632,7 @@ class KnowledgeQAAgent:
             for chunk in self.llm_service.get_answer_stream(
                 question=question,
                 context_docs=docs,
-                conversation_context=context,
+                conversation_context=full_context,
                 enable_search=stream_enable_search
             ):
                 answer_parts.append(chunk)

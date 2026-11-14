@@ -289,6 +289,8 @@ async def ask_question(request: ChatRequest):
             result = router_agent.route(
                 input_text=request.question,
                 conversation_id=request.conversation_id,
+                # 与流式链路同理: 漏传 user_id 会让长期偏好写入对着 None 静默跳过
+                user_id=request.user_id,
                 context=request.context,
                 username=request.username,
                 is_admin=request.is_admin
@@ -412,6 +414,11 @@ async def ask_question_stream(request: ChatRequest):
             async for event_data in iterate_in_threadpool(
                 router_agent.route_stream(
                     input_text=request.question,
+                    # conversation_id / user_id 必须透传: 漏掉时 route_stream 拿到的都是默认 None,
+                    # 表现为流式链路读不到 Redis 会话记忆(只有 Java 摘要)、也写不了用户偏好,
+                    # 且全程静默 —— 聊天页走的正是这条链路。
+                    conversation_id=request.conversation_id,
+                    user_id=request.user_id,
                     context=request.context,
                     username=request.username,
                     is_admin=request.is_admin
