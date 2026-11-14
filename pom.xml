@@ -138,6 +138,18 @@
                     </excludes>
                 </configuration>
             </plugin>
+            <!-- 测试 JVM 的 stdout/stderr 显式走 UTF-8。
+                 背景: Java 19+ 的 stdout.encoding 默认取 native.encoding,
+                 中文 Windows 上是 GBK; 而终端 (chcp 65001) 按 UTF-8 解码,
+                 Spring Boot 日志与 MyBatis 参数里的中文就会变成 ��。
+                 surefire fork 的 JVM 不继承 mvn 自己的 -D 参数, 必须在此单独指定。 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8</argLine>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 
