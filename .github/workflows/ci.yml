@@ -72,21 +72,24 @@ jobs:
           java-version: "17"
           distribution: "temurin"
 
-      - name: Init database schema
-        # sql/init.sql 是 mysqldump 产物，有两个坑：
-        # 1) 里面没有 CREATE DATABASE，必须先建库
-        # 2) 部分表的 INSERT 数据与表结构不同步 —— admin_message 有 9 列，
-        #    但导出的数据只给了 7 个值（缺 feedback_type/feedback_time），
-        #    全量导入会在 "1136 Column count doesn't match value count" 处中断。
-        # 集成测试只需要 schema、不依赖种子数据，所以过滤掉所有 INSERT 行。
+      - name: Init database
+        # sql/init.sql 是 mysqldump 产物，里面没有 CREATE DATABASE，必须先建库。
+        #
+        # 这里做**全量导入**（表 + 数据），而不是只导 schema：
+        # init.sql 此前无法全量导入 —— admin_message 有 9 列但数据只给 7 个值
+        # （缺 feedback_type/feedback_time），conversation_context 有 13 列但只给 9 个值
+        # （缺 4 个 summary_* 列），都会报 1136 Column count doesn't match。
+        # 已改为显式列名（INSERT INTO t (列名...) VALUES），与表结构解耦。
+        #
+        # 保留全量导入是为了让 CI 持续当哨兵：以后改表结构忘了同步 dump，
+        # 这里会立刻红，而不是等到有人真的去部署时才发现。
         # --default-character-set=utf8mb4: 中文注释与数据都是 utf8mb4。
         run: |
           mysql -h 127.0.0.1 -P 3306 -uroot -p123456 \
             -e "CREATE DATABASE IF NOT EXISTS ai_knowledge_db CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"
-          grep -v '^INSERT INTO' sql/init.sql > /tmp/schema.sql
           mysql -h 127.0.0.1 -P 3306 -uroot -p123456 --default-character-set=utf8mb4 \
-            ai_knowledge_db < /tmp/schema.sql
-          # 卡一道闸：表没建出来就别往下跑，否则错误会以更难读的形式出现在测试里
+            ai_knowledge_db < sql/init.sql
+          # 卡一道闸：表和种子数据没进来就别往下跑，否则错误会以更难读的形式出现在测试里
           mysql -h 127.0.0.1 -P 3306 -uroot -p123456 -N -e \
             "SELECT CONCAT('tables=', COUNT(*)) FROM information_schema.tables WHERE table_schema='ai_knowledge_db'"
 
