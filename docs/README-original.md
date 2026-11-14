@@ -4,7 +4,7 @@
 > 本文是重构前的 README 原件。其中「五层可编排 Agent 架构、请求经过 Orchestrator」的表述
 > 与当前代码不符：`Orchestrator` / `Planner.plan_steps()` / `Executor` 这套编排骨架
 > **从未被任何入口调用，并已于 2026-11-13 整体删除**（`agent/` 现只保留事件总线）。
-> 准确版本请以根目录 `项目简要介绍.md` 为准。
+> 准确版本请以根目录 `README.md` 为准（详细学习看 `AgentCraft学习指南.md`，面试口径看 `简历与面试.md`）。
 
 # 🚀 AgentCraft — 多 Agent 协作智能知识库系统
 
@@ -462,6 +462,6 @@ npm run dev
 
 详细学习说明文档请查看 [AgentCraft 学习指南](AgentCraft学习指南.md)。
 
-**新手入门**：如果你是刚学完基础、没有项目经验的新手，建议先阅读 [新手友好食用指南](新手友好食用指南.md)，从环境搭建到核心概念理解，手把手带你上手。
+**新手入门**：如果你是刚学完基础、没有项目经验的新手，建议先阅读 [AgentCraft 学习指南](../AgentCraft学习指南.md)，从概念扫盲到代码解读逐步深入。
 
 🤝 欢迎大家在学习过程中遇到问题时，随时提交 [issue](https://github.com/EvanYao826/AgentCraft/issues)，一起交流和改进！

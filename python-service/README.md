@@ -4,10 +4,17 @@
 
 ## 目录结构
 
-*   `main.py`: 服务入口
-*   `api/`: API 接口定义
-*   `core/`: 核心逻辑 (解析、向量库、LLM)
+*   `main.py`: 服务入口（挂载 `/api` 前缀）
+*   `api/`: 接口定义（`routes.py` 问答/流式/文档，`agent_routes.py` Agent 运行与工具清单）
+*   `workflows/`: 业务编排（`router_agent.py` 路由 + 7 个专职 Agent）
+*   `intent/`: 意图分类器（LLM 优先 + 关键词兜底）
+*   `tools/`: 工具集与注册中心（`registry.py` 单例，8 个已注册工具）
+*   `core/`: 基础设施（LLM / 向量库 / 事件总线 / 轨迹落库 / 评估器 / 记忆客户端）
+*   `tests/`: pytest 回归（54 项）
 *   `requirements.txt`: 依赖列表
+*   `rebuild_index.py`: 重建向量索引脚本
+
+> 整体架构与启动方式见上级目录的 [README.md](../README.md)。
 
 ## 环境准备
 
