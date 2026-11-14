@@ -1,5 +1,6 @@
 from typing import Dict, Any, Optional, Generator
 from core.llm import llm
+from core.preference_context import format_user_memory
 from core.retrieval_evaluator import publish_step
 from tools.registry import tool_registry
 import logging
@@ -88,6 +89,12 @@ class ChitChatAgent:
                 except Exception as e:
                     logger.warning(f"[ChitChatAgent] Failed to read conversation memory: {e}")
 
+            # 1.5 用户长期偏好：闲聊也要"记得"用户说过的话。
+            #     此前只有 L1/L2/L3 注入偏好，一旦问题被路由成闲聊
+            #     （"我之前说过偏好吗？"很容易被判成闲聊），就会答"你没提过"，
+            #     与刚写进 user_memory 的事实自相矛盾。
+            conversation_history = self._with_user_memory(conversation_history, user_id)
+
             # 2. 生成回复（带会话上下文）
             _g0 = time.time()
             answer = self._generate_chitchat_response(question, conversation_history)
@@ -132,6 +139,18 @@ class ChitChatAgent:
                 formatted.append(f"AI: {content}")
 
         return "\n".join(formatted)
+
+    def _with_user_memory(self, context: str, user_id: Optional[str]) -> str:
+        """把用户长期偏好追加到上下文；无偏好或读取失败时原样返回。
+
+        读侧实现见 core/preference_context（与 L1/L2/L3 共用同一份，
+        置信度下限、条数与字符上限都在那里统一控制）。
+        """
+        memory_text = format_user_memory(user_id)
+        if not memory_text:
+            return context
+        block = f"[用户长期偏好] {memory_text}"
+        return f"{context}\n\n{block}" if context else block
 
     def _save_to_memory(self, conversation_id: str, question: str, answer: str):
         """保存对话到会话记忆"""
@@ -192,6 +211,9 @@ class ChitChatAgent:
                         conversation_history = self._format_history(messages)
                 except Exception as e:
                     logger.warning(f"[ChitChatAgent] Failed to read conversation memory: {e}")
+
+            # 1.5 用户长期偏好（与同步链路一致）
+            conversation_history = self._with_user_memory(conversation_history, user_id)
 
             # 2. 生成回复
             _g0 = time.time()

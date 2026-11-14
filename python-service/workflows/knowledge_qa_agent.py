@@ -394,6 +394,26 @@ class KnowledgeQAAgent:
             "note": "百炼服务端检索, 耗时已计入答案生成",
         }, input_text=question)
 
+    @staticmethod
+    def _stream_piece(chunk: str) -> str:
+        """从 get_answer_stream 的 token 事件中取出正文。
+
+        该生成器产出的是要原样转发给前端的 SSE 载荷（``{"type":"token",...}``），
+        但答案评估、忠实度评判、会话记忆需要的是纯文本。
+        """
+        if not chunk:
+            return ""
+        try:
+            event = json.loads(chunk)
+        except (TypeError, ValueError):
+            return chunk
+        if not isinstance(event, dict):
+            return chunk
+        if event.get("type") != "token":
+            return ""
+        content = event.get("content")
+        return content if isinstance(content, str) else ""
+
     def _save_to_memory(self, conversation_id: str, question: str, answer: str):
         """保存对话到会话记忆"""
         if not conversation_id or not tool_registry.has_tool("conversation_memory_write"):
@@ -627,6 +647,9 @@ class KnowledgeQAAgent:
                 })
 
             # 3. 流式 LLM 生成（累积全文 + 实测耗时, 供评估与留痕使用）
+            #    注意: get_answer_stream 产出的是 SSE 载荷 {"type":"token","content":...},
+            #    原样 yield 给前端, 但累积时必须取正文 —— 否则评估拿到的"答案"
+            #    是一串 JSON, answer_length 虚高, 会话记忆里也写进 JSON 包装。
             _g0 = time.time()
             answer_parts = []
             for chunk in self.llm_service.get_answer_stream(
@@ -635,7 +658,9 @@ class KnowledgeQAAgent:
                 conversation_context=full_context,
                 enable_search=stream_enable_search
             ):
-                answer_parts.append(chunk)
+                piece = self._stream_piece(chunk)
+                if piece:
+                    answer_parts.append(piece)
                 yield chunk
             answer = "".join(answer_parts)
             gen_ms = (time.time() - _g0) * 1000
@@ -654,6 +679,13 @@ class KnowledgeQAAgent:
 
             # 5. 后台忠实度评判(非阻塞): 流已发完, 派发线程即返回, 不拖慢收尾
             trigger_faithfulness_judge(question, answer, docs, chain="STREAM")
+
+            # 4.8 写入会话记忆(Redis)。
+            #     此前流式链路只"读"不"写": 第 0 步读到的 recent 5 条永远是空的
+            #     (Java 落库在 MySQL, 会话记忆读的是 Redis), 表现是聊天页多轮对话
+            #     像失忆 —— 指代("它")在下一轮找不到对象。同步/L1/L2/闲聊/L3 都写,
+            #     唯独聊天页走的这条链漏了, 属于遗漏而非设计。
+            self._save_to_memory(conversation_id, question, answer)
 
             # 6. 抽取显式长期偏好(失败静默, 不影响已发出的流式内容)
             self._maybe_remember(user_id, question)
