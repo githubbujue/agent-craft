@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { userManagementAPI } from '../../api/admin';
 import './AdminDashboard.css';
 
 export default function UserManagement() {
+  const navigate = useNavigate();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -103,6 +105,13 @@ export default function UserManagement() {
                         onClick={() => handleStatusChange(user.id, user.status)}
                       >
                         {user.status === 1 ? '封禁' : '解封'}
+                      </button>
+                      <button
+                        className="action-btn"
+                        style={{ marginLeft: '8px' }}
+                        onClick={() => navigate(`/admin/memory?userId=${user.id}`)}
+                      >
+                        记忆
                       </button>
                     </td>
                   </tr>

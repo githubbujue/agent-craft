@@ -26,6 +26,7 @@ export default function AdminDashboard() {
     const path = location.pathname;
     if (path.includes('/dashboard')) setActiveMenu('dashboard');
     else if (path.includes('/users')) setActiveMenu('users');
+    else if (path.includes('/memory')) setActiveMenu('memory');
     else if (path.includes('/knowledge')) setActiveMenu('knowledge');
     else if (path.includes('/logs')) setActiveMenu('logs');
     else if (path.includes('/agent-runs')) setActiveMenu('agent-runs');
@@ -45,6 +46,7 @@ export default function AdminDashboard() {
     { id: 'chat', label: '管理助手', icon: '⚙️', path: '/admin/chat' },
     { id: 'dashboard', label: '仪表盘', icon: '📊', path: '/admin/dashboard' },
     { id: 'users', label: '用户管理', icon: '👥', path: '/admin/users' },
+    { id: 'memory', label: '用户记忆', icon: '🧠', path: '/admin/memory' },
     { id: 'knowledge', label: '知识库管理', icon: '📚', path: '/admin/knowledge' },
     { id: 'logs', label: '问答日志', icon: '📝', path: '/admin/logs' },
     { id: 'agent-runs', label: 'Agent执行记录', icon: '🔄', path: '/admin/agent-runs' },

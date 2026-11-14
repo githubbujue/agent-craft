@@ -7,6 +7,7 @@ import Header from './components/Header';
 import AdminLogin from './pages/admin/AdminLogin';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import UserManagement from './pages/admin/UserManagement';
+import MemoryManagement from './pages/admin/MemoryManagement';
 import KnowledgeManagement from './pages/admin/KnowledgeManagement';
 import QaLogManagement from './pages/admin/QaLogManagement';
 import Dashboard from './pages/admin/Dashboard';
@@ -51,6 +52,7 @@ export default function App() {
           <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="users" element={<UserManagement />} />
+          <Route path="memory" element={<MemoryManagement />} />
           <Route path="knowledge" element={<KnowledgeManagement />} />
           <Route path="logs" element={<QaLogManagement />} />
           <Route path="agent-runs" element={<AgentRunManagement />} />
