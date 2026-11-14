@@ -10,6 +10,7 @@ import com.demo.aiknowledge.mapper.MessageMapper;
 import com.demo.aiknowledge.service.CacheService;
 import com.demo.aiknowledge.service.ConversationContextService;
 import com.demo.aiknowledge.service.SummaryGenerator;
+import com.demo.aiknowledge.util.TextSimilarity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
@@ -649,30 +650,100 @@ public class ConversationContextServiceImpl implements ConversationContextServic
         }
     }
 
-    @Override
-    public List<ConversationContext> findSimilarConversations(Long userId, String query, int topK) {
-        // 简化版：按关键词匹配
-        // 实际应该使用向量搜索（Milvus/FAISS）
+    /** 召回候选池：先取候选再打分，而不是先 LIMIT topK 再过滤（那样只能从 topK 条里筛） */
+    private static final int RECALL_CANDIDATE_LIMIT = 20;
+    /**
+     * 相关度判定：覆盖率下限 + 最少命中 gram 数。
+     *
+     * <p>0.25 的纯覆盖率阈值在真实数据上漏掉了典型召回提问：
+     * 「上次我们说的部署方案是什么来着」切出 11 个 gram（多数是"次我""们说"这类
+     * 跨词边界噪声），命中"部署""方案"后覆盖率只有 0.18。因此改为
+     * 覆盖率 0.15 + 至少命中 2 个 gram，两个条件一起挡噪声。
+     */
+    private static final double RECALL_MIN_COVERAGE = 0.15;
+    private static final int RECALL_MIN_HIT_GRAMS = 2;
+    private static final int RECALL_TOP_K = 3;
+    private static final int RECALL_ITEM_MAX_CHARS = 150;
+    private static final int RECALL_BLOCK_MAX_CHARS = 500;
 
-        List<ConversationContext> contexts = conversationContextMapper.selectList(
+    @Override
+    public List<ConversationContext> findSimilarConversations(Long userId, Long excludeConversationId,
+                                                              String query, int topK) {
+        if (userId == null || query == null || query.isBlank() || topK <= 0) {
+            return Collections.emptyList();
+        }
+
+        List<ConversationContext> candidates = conversationContextMapper.selectList(
                 new LambdaQueryWrapper<ConversationContext>()
                         .eq(ConversationContext::getUserId, userId)
+                        .isNotNull(ConversationContext::getSummary)
+                        // 必须排除当前会话：否则自己的摘要会被当成"历史"，等于重复注入
+                        .ne(excludeConversationId != null,
+                                ConversationContext::getConversationId, excludeConversationId)
                         .orderByDesc(ConversationContext::getImportanceScore)
-                        .last("LIMIT " + topK)
+                        .orderByDesc(ConversationContext::getUpdateTime)
+                        .last("LIMIT " + RECALL_CANDIDATE_LIMIT)
         );
 
-        // 简单的文本相似度匹配
-        return contexts.stream()
-                .filter(context -> {
-                    if (context.getSummary() == null) return false;
-                    // 检查摘要中是否包含查询关键词
-                    String[] keywords = query.toLowerCase().split("\\s+");
-                    String summary = context.getSummary().toLowerCase();
-                    return Arrays.stream(keywords)
-                            .anyMatch(summary::contains);
-                })
+        return candidates.stream()
+                .filter(context -> TextSimilarity.isRelevant(
+                        query, context.getSummary(), RECALL_MIN_COVERAGE, RECALL_MIN_HIT_GRAMS))
+                .sorted(Comparator.comparingDouble(
+                                (ConversationContext context) ->
+                                        TextSimilarity.coverage(query, context.getSummary()))
+                        .reversed())
                 .limit(topK)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public String buildPromptContext(Long conversationId, Long userId, String question) {
+        StringBuilder context = new StringBuilder();
+
+        String summary = getConversationSummaryIfPresent(conversationId);
+        if (summary != null && !summary.isBlank()) {
+            context.append("【更早的对话摘要】\n").append(summary.trim());
+        }
+
+        String recall = buildRecallBlock(userId, conversationId, question);
+        if (!recall.isEmpty()) {
+            if (context.length() > 0) {
+                context.append("\n\n");
+            }
+            context.append(recall);
+        }
+        return context.toString();
+    }
+
+    /**
+     * 跨会话召回块。任何异常都只记日志 —— 召回是锦上添花，不能拖垮问答。
+     */
+    private String buildRecallBlock(Long userId, Long conversationId, String question) {
+        try {
+            List<ConversationContext> similar =
+                    findSimilarConversations(userId, conversationId, question, RECALL_TOP_K);
+            if (similar.isEmpty()) {
+                log.debug("跨会话召回无命中 - userId: {}, question: {}", userId, question);
+                return "";
+            }
+            StringBuilder block = new StringBuilder("【可能相关的历史会话】（与当前问题无关时请忽略）");
+            for (ConversationContext context : similar) {
+                block.append("\n- ").append(truncate(context.getSummary(), RECALL_ITEM_MAX_CHARS));
+            }
+            log.info("跨会话召回 {} 条 - userId: {}, 块长度: {}",
+                    similar.size(), userId, block.length());
+            return truncate(block.toString(), RECALL_BLOCK_MAX_CHARS);
+        } catch (Exception e) {
+            log.warn("跨会话召回失败，跳过 - userId: {}, conversationId: {}", userId, conversationId, e);
+            return "";
+        }
+    }
+
+    private static String truncate(String text, int maxChars) {
+        if (text == null) {
+            return "";
+        }
+        return text.length() <= maxChars ? text : text.substring(0, maxChars) + "...";
     }
 
     @Override

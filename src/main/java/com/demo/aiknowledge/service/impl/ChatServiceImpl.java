@@ -104,13 +104,12 @@ public class ChatServiceImpl implements ChatService {
              aiService.generateTitle(conversationId, content);
         }
 
-        // 3. 构建对话上下文 —— 只传"更早对话的摘要"
-        //    最近几轮的原文由 Python 侧从 Redis 读取; 两边都传原文会在同一个 Prompt 里重复
-        String conversationSummary = conversationContextService.getConversationSummaryIfPresent(conversationId);
-        String conversationContext = (conversationSummary == null || conversationSummary.isBlank())
-                ? ""
-                : "【更早的对话摘要】\n" + conversationSummary;
-        log.debug("对话上下文摘要构建完成，长度: {}", conversationContext.length());
+        // 3. 构建对话上下文 = 当前会话更早对话的摘要 + 可能相关的历史会话
+        //    最近几轮的原文由 Python 侧从 Redis 读取; 两边都传原文会在同一个 Prompt 里重复。
+        //    与流式链路共用 buildPromptContext, 避免"改一份忘一份"
+        String conversationContext = conversationContextService.buildPromptContext(
+                conversationId, userId, content);
+        log.debug("对话上下文构建完成，长度: {}", conversationContext.length());
 
         // 4. 调用 AI 服务获取回答 —— 在事务之外执行
         //    此处是 HTTP + LLM 调用(5-15秒), 不再占用数据库连接与行锁;

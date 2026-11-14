@@ -76,14 +76,32 @@ public interface ConversationContextService {
     void saveLongTermMemory(Long conversationId, Long userId);
 
     /**
-     * 检索相似对话
+     * 检索相似对话（跨会话）
      *
-     * @param userId    用户ID
-     * @param query     查询内容
-     * @param topK      返回数量
-     * @return 相似对话列表
+     * @param userId                用户ID
+     * @param excludeConversationId 要排除的会话（通常是当前会话，避免把自己的摘要当历史）
+     * @param query                 查询内容
+     * @param topK                  返回数量
+     * @return 相似对话列表，按相关度降序；无命中返回空列表
      */
-    List<ConversationContext> findSimilarConversations(Long userId, String query, int topK);
+    List<ConversationContext> findSimilarConversations(Long userId, Long excludeConversationId,
+                                                       String query, int topK);
+
+    /**
+     * 构建传给 AI 服务的对话上下文。
+     *
+     * <p>内容 = 当前会话更早对话的摘要 + 可能相关的历史会话。
+     * 最近几轮原文不在这里传 —— 由 Python 侧从 Redis 读取，两边都传会导致重复注入。
+     *
+     * <p>两条链路（{@code ChatServiceImpl} / {@code ChatStreamServiceImpl}）共用，
+     * 此前各写了一份"取摘要加前缀"的逻辑，改一处忘一处。
+     *
+     * @param conversationId 当前会话ID
+     * @param userId         用户ID
+     * @param question       用户本次提问（用于跨会话召回）
+     * @return 可直接作为 prompt 上下文使用的字符串；无内容时返回空串
+     */
+    String buildPromptContext(Long conversationId, Long userId, String question);
 
     /**
      * 清理过期上下文

@@ -79,8 +79,9 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      * 转发 Python 事件流并在结束后落库。
      */
     private void doStream(SseEmitter emitter, Long userId, Long conversationId, String content) {
-        // 上下文 = 最近10条消息（含刚提交的用户消息）, 与同步链路一致
-        String conversationContext = buildConversationContext(conversationId);
+        // 上下文 = 更早对话的摘要 + 可能相关的历史会话, 与同步链路共用同一实现
+        String conversationContext = conversationContextService.buildPromptContext(
+                conversationId, userId, content);
 
         // 累积区: token 拼接 / 完整回答(end 事件, 更可靠) / 引用 / 任务类型
         StringBuilder answerBuffer = new StringBuilder();
@@ -210,17 +211,4 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                 conversationId, userId, question, answer, sourcesJson, taskType);
     }
 
-    /**
-     * 构建对话上下文字符串 —— 只传"更早对话的摘要"（与 ChatServiceImpl 同步链路一致）
-     *
-     * <p>最近几轮的原文由 Python 侧从 Redis 读取（conversation_memory_read）；
-     * 此处若再传原文，同一批对话会在 Prompt 里出现两次。
-     */
-    private String buildConversationContext(Long conversationId) {
-        String summary = conversationContextService.getConversationSummaryIfPresent(conversationId);
-        if (summary == null || summary.isBlank()) {
-            return "";
-        }
-        return "【更早的对话摘要】\n" + summary;
-    }
 }
