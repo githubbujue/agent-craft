@@ -104,15 +104,13 @@ public class ChatServiceImpl implements ChatService {
              aiService.generateTitle(conversationId, content);
         }
 
-        // 3. 获取对话上下文（获取最近10条消息，包含刚提交的用户消息）
-        List<Message> contextMessages = conversationContextService.getConversationContext(conversationId, 10);
-        // 构建上下文字符串
-        StringBuilder contextBuilder = new StringBuilder();
-        for (Message msg : contextMessages) {
-            contextBuilder.append(msg.getRole()).append(": ").append(msg.getContent()).append("\n");
-        }
-        String conversationContext = contextBuilder.toString();
-        log.debug("对话上下文构建完成，长度: {}，内容: {}", conversationContext.length(), conversationContext);
+        // 3. 构建对话上下文 —— 只传"更早对话的摘要"
+        //    最近几轮的原文由 Python 侧从 Redis 读取; 两边都传原文会在同一个 Prompt 里重复
+        String conversationSummary = conversationContextService.getConversationSummaryIfPresent(conversationId);
+        String conversationContext = (conversationSummary == null || conversationSummary.isBlank())
+                ? ""
+                : "【更早的对话摘要】\n" + conversationSummary;
+        log.debug("对话上下文摘要构建完成，长度: {}", conversationContext.length());
 
         // 4. 调用 AI 服务获取回答 —— 在事务之外执行
         //    此处是 HTTP + LLM 调用(5-15秒), 不再占用数据库连接与行锁;

@@ -46,6 +46,18 @@ public interface ConversationContextService {
     String getConversationSummary(Long conversationId);
 
     /**
+     * 获取已存在的对话摘要（只读，不触发现场生成）
+     *
+     * <p>与 {@link #getConversationSummary(Long)} 的区别：后者在摘要缺失时会重新生成并写库，
+     * 适合"确实需要摘要"的场景；本方法只查一次，缺失返回 null，适合在请求链路上做可选补充，
+     * 避免每次提问都触发全量消息扫描与写库。
+     *
+     * @param conversationId 对话ID
+     * @return 已存在的摘要；不存在返回 null
+     */
+    String getConversationSummaryIfPresent(Long conversationId);
+
+    /**
      * 保存长期记忆
      *
      * @param conversationId 对话ID

@@ -55,13 +55,15 @@ class KnowledgeQAAgent:
 
         try:
             # 1. 读取会话记忆作为上下文
+            #    只取最近 5 条原文：更早的历史由 Java 侧以摘要形式放进 context，
+            #    两边都传原文会让同一批对话在 Prompt 里重复（见 docs/记忆改造计划.md 阶段 1）
             conversation_history = ""
             if conversation_id and tool_registry.has_tool("conversation_memory_read"):
                 _mt0 = time.time()
                 try:
                     history = tool_registry.invoke_tool(
                         "conversation_memory_read",
-                        {"conversation_id": conversation_id, "limit": 10}
+                        {"conversation_id": conversation_id, "limit": 5}
                     )
                     messages = history.get("messages", [])
                     publish_step("memory_read", {
@@ -79,6 +81,8 @@ class KnowledgeQAAgent:
             full_context = context
             if conversation_history:
                 full_context = f"{context}\n\n{conversation_history}" if context else conversation_history
+            logger.info(f"[KnowledgeQAAgent] prompt_context_len={len(full_context)} "
+                        f"(java_summary={len(context)}, redis_history={len(conversation_history)})")
 
             # 2. 判断复杂度，选择链路
             complexity = self.router.classify_complexity(question)

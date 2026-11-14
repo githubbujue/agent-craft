@@ -249,6 +249,24 @@ public class ConversationContextServiceImpl implements ConversationContextServic
     }
 
     @Override
+    public String getConversationSummaryIfPresent(Long conversationId) {
+        try {
+            ConversationContext context = conversationContextMapper.selectOne(
+                    new LambdaQueryWrapper<ConversationContext>()
+                            .eq(ConversationContext::getConversationId, conversationId)
+            );
+            if (context == null || context.getSummary() == null || context.getSummary().isBlank()) {
+                return null;
+            }
+            return context.getSummary();
+        } catch (Exception e) {
+            // 摘要只是上下文补充，读取失败不应影响问答主流程
+            log.warn("Failed to read conversation summary - conversationId: {}", conversationId, e);
+            return null;
+        }
+    }
+
+    @Override
     @Transactional
     public void saveLongTermMemory(Long conversationId, Long userId) {
         try {

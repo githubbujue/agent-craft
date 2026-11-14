@@ -19,7 +19,6 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -211,13 +210,17 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                 conversationId, userId, question, answer, sourcesJson, taskType);
     }
 
-    /** 构建对话上下文字符串（与 ChatServiceImpl 同步链路一致: 最近10条 role: content） */
+    /**
+     * 构建对话上下文字符串 —— 只传"更早对话的摘要"（与 ChatServiceImpl 同步链路一致）
+     *
+     * <p>最近几轮的原文由 Python 侧从 Redis 读取（conversation_memory_read）；
+     * 此处若再传原文，同一批对话会在 Prompt 里出现两次。
+     */
     private String buildConversationContext(Long conversationId) {
-        List<Message> messages = conversationContextService.getConversationContext(conversationId, 10);
-        StringBuilder sb = new StringBuilder();
-        for (Message msg : messages) {
-            sb.append(msg.getRole()).append(": ").append(msg.getContent()).append("\n");
+        String summary = conversationContextService.getConversationSummaryIfPresent(conversationId);
+        if (summary == null || summary.isBlank()) {
+            return "";
         }
-        return sb.toString();
+        return "【更早的对话摘要】\n" + summary;
     }
 }

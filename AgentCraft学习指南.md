@@ -625,6 +625,22 @@ class ToolRegistry:
 ④ 用户记忆（MySQL）      core/mysql_client.py   ⚠️ 仅定义未调用，表也不在建表脚本里
 ```
 
+**Java 侧还有一条轨，容易被忽略**：
+
+Java 的 `ConversationContextService` 从 MySQL 维护 `conversation_context`（摘要 / 重要性 / 滑动窗口），
+每次落消息时更新，每 5 条触发一次摘要生成（关键词提取，**不调 LLM**），每 10 条写一次长期记忆。
+它是**跨会话永久保存**的，而 Redis 只有 24 小时。
+
+两条轨的分工（2026-11-14 调整后）：
+
+| 侧 | 传给模型的内容 | 为什么 |
+|---|---|---|
+| Java | 更早对话的**摘要**（有则传，无则空串） | 覆盖 24 小时以前的历史 |
+| Python | 最近 **5 条原文**（Redis） | 保证指代衔接自然 |
+
+> 之前两边各传最近 10 条原文，同一批对话在 Prompt 里出现两次（长度翻倍）。
+> 修复过程与实测数据见 [docs/记忆改造计划.md](docs/记忆改造计划.md) 阶段 1。
+
 几个能讲出细节的点：
 
 - **没有 `AgentState` 了**。编排骨架删除后，步骤状态只是各 workflow 方法里的局部变量；跨模块传的只有
@@ -636,9 +652,9 @@ class ToolRegistry:
   摘要存 `conversation:{id}:summary`，TTL 1 小时，过期后重新生成。
 - **落库的长记录不喂给模型**：`agent_run` / `agent_step` / `tool_call` 是执行轨迹，`qa_log` 是问答日志
   （带 like/dislike），都只服务管理端与评估，不参与推理。
-- **别把设计当实现**：`conversation_context` 表有 `summary` / `embedding` / `importance_score` 字段，
-  Java 侧也有 Service 和 Mapper，但 Python 链路从未调用。说"预留了长期记忆的存储结构"是准确的，
-  说"已实现用户长期记忆"就是硬伤。
+- **别把设计当实现**：`conversation_context` 表在 Java 侧是**真实读写**的（摘要 / 窗口 / 重要性），
+  但 Python 链路从不访问它，`embedding` 字段也始终为空。可以说"Java 有会话摘要、Python 有原文记忆，
+  两者分工"，不能说"实现了用户长期记忆"——那是 `user_memory` 该干的事，而它还没建表。
 
 **面试要点**
 - 为什么分层？→ 生命周期与读写成本的权衡：请求内 contextvars → 24 小时 Redis → 持久化向量库
