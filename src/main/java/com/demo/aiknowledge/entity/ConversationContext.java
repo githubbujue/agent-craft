@@ -36,8 +36,14 @@ public class ConversationContext {
     private String summary;
 
     /**
-     * 对话向量（用于相似对话检索）
-     * 存储对话内容的向量表示，JSON格式
+     * 对话向量 —— <b>预留字段，从未写入，目前恒为 null</b>。
+     *
+     * <p>跨会话召回现在走 2-gram 文本相似度（{@code util/TextSimilarity}），而不是向量检索。
+     * 原因：向量库在 Python 侧（FAISS/Milvus），而召回逻辑在 Java 侧，
+     * 跨进程检索的架构成本远高于收益；且召回对象是"已浓缩的会话摘要"，短文本上 2-gram 够用。
+     *
+     * <p>将来会话量上来（几百条以上）时：由 Python 侧生成向量回写此字段，
+     * 并提供检索接口，Java 侧改为调用即可。在此之前不要把它当成已实现的能力。
      */
     private String embedding;
 

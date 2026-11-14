@@ -616,13 +616,14 @@ class ToolRegistry:
 
 ### 3.4 记忆与上下文（真实实现）
 
-真正在链路上跑的记忆是四层（第四层 2026-11-14 接通只读）：
+真正在链路上跑的记忆是五层（④⑤ 均为 2026-11-14 打通）：
 
 ```
 ① 请求上下文（run_id）   core/run_context.py    contextvars，单次请求内隔离
 ② 会话记忆（Redis）      core/redis_client.py   conversation:{id}:messages，24h TTL
 ③ 知识记忆（向量库）     core/vector_store.py   Milvus 优先，FAISS 兜底
-④ 用户记忆（MySQL）      core/mysql_client.py   user_memory 表 + 问答链路只读注入（2026-11-14）
+④ 用户记忆（MySQL）      core/mysql_client.py   user_memory 表，抽取→写入→读注入→管理端可删
+⑤ 跨会话召回（Java）     ConversationContextServiceImpl  会话摘要 + 2-gram 相似度检索
 ```
 
 **Java 侧还有一条轨，容易被忽略**：
@@ -652,18 +653,31 @@ Java 的 `ConversationContextService` 从 MySQL 维护 `conversation_context`（
   摘要存 `conversation:{id}:summary`，TTL 1 小时，过期后重新生成。
 - **落库的长记录不喂给模型**：`agent_run` / `agent_step` / `tool_call` 是执行轨迹，`qa_log` 是问答日志
   （带 like/dislike），都只服务管理端与评估，不参与推理。
-- **用户记忆只做了"读"**：2026-11-14 建了 `user_memory` 表，问答链路开头读一次，拼成
-  `[用户长期偏好] {...}` 注入上下文（最多 10 条 / 500 字符）。但**没有自动写入**——不去写就一直是空表。
-  准确说法是"预留并接通了用户记忆的读取通路"，不是"已实现个性化记忆"。
+- **用户记忆是完整闭环了**（2026-11-14）：`core/preference_extractor.py` 做
+  「关键词预筛 → 一次 LLM 抽取 → 白名单收敛」，结果写 `user_memory`；读侧按置信度 0.6 过滤后注入
+  `[用户长期偏好] {...}`（最多 10 条 / 500 字符）。用户说"后面都给我表格"→ 落库
+  `answer_format=表格` → 下一轮起真的用表格。**正则规则保留为兜底**（LLM 抽不到时才用），
+  显式指令仍是 `explicit/1.0`，不被模型打分稀释。
+  成本控制靠预筛：普通提问命中不了信号词，就不会花那次 LLM 调用。
+  管理端 `/admin/memory` 可以查看和删除 —— 用户说得出来"AI 记了我什么"，才谈得上纠正。
+- **跨会话召回接上了**（2026-11-14）：`findSimilarConversations()` 此前零调用，而且用
+  `query.split("\\s+")` 分词 —— 中文没有空格，整句话变成一个关键词再 `summary.contains()`，
+  中文查询**必然零命中**。改成 2-gram 覆盖率 + 命中数双条件后接进两条链路，
+  问"上次我们说的部署方案"能把另一个会话的摘要召回来。阈值是拿真实数据标定的
+  （纯覆盖率 0.25 会漏掉典型提问，见 [docs/记忆改造计划.md](docs/记忆改造计划.md) §七）。
 - **别把设计当实现**：`conversation_context` 表在 Java 侧是**真实读写**的（摘要 / 窗口 / 重要性），
-  但 Python 链路从不访问它，`embedding` 字段也始终为空。可以说"Java 有会话摘要、Python 有原文记忆，
-  两者分工"。
+  但 Python 链路从不访问它。`embedding` 字段是**预留、从未写入** —— 跨会话召回目前走 2-gram 文本
+  相似度而不是向量：向量在 Python 侧的 FAISS/Milvus，召回逻辑在 Java 侧，跨进程检索的成本
+  远高于收益。等会话量上来再做。
 
 **面试要点**
 - 为什么分层？→ 生命周期与读写成本的权衡：请求内 contextvars → 24 小时 Redis → 持久化向量库
 - 对话压缩怎么做的？→ 消息超 10 条 LLM 摘要 + 保留最近 5 条原文 + 摘要缓存 1 小时
 - 记忆存在哪、谁在用？→ 必须能说出具体文件和具体 Agent
-- 用户记忆做到哪一步？→ 表 + 只读注入已通，写入与抽取未做（`UserMemoryClient.update_user_memory` 目前无人调用）
+- 用户记忆做到哪一步？→ **完整闭环**：预筛 + LLM 抽取 → MySQL → 读侧阈值过滤注入 → 管理端可删。
+  正则降为兜底，成本靠预筛控制
+- 跨会话记忆呢？→ `conversation_context` 存摘要，2-gram 召回；`embedding` 字段预留但未用，
+  原因是向量在 Python 侧、召回在 Java 侧，跨进程成本不划算
 
 ### 3.5 EventBus 与轨迹落库
 
@@ -1039,7 +1053,11 @@ result = tool_registry.invoke_tool("weather", {"city": "北京"})
 ### Q5：记忆是怎么做的
 
 见 3.4。一句话版本：Redis 存会话（24h TTL，超 10 条消息触发 LLM 压缩，保留最近 5 条），
-`contextvars` 存 `run_id`，只有 3 个 Agent 读写记忆，**没有用户级长期记忆**。
+`contextvars` 存 `run_id`，只有 3 个 Agent 读写会话记忆。
+
+用户级长期偏好（2026-11 起）：`user_memory` 存键值对，抽取走"预筛 + LLM + 白名单"，
+读侧按置信度过滤注入；跨会话召回用会话摘要 + 2-gram 相似度。
+**但这不是"用户画像"** —— 只有几条键值偏好，没有标签体系或推荐。
 
 ### Q6：可观测性怎么做的
 
