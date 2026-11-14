@@ -37,6 +37,32 @@ jobs:
   java-test:
     name: Java Tests
     runs-on: ubuntu-latest
+    # 集成测试（SummaryTaskIntegrationTest）真连 MySQL/Redis，不加这两个 service
+    # 它只能靠 @RequiresLocalInfra 整类跳过 —— 那等于 CI 再也没验证过摘要链路。
+    # 这里把库准备好，让 CI 跑到真东西。
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          # 与 application.yml 的默认值(root/123456)保持一致，测试无需再注入环境变量。
+          # CI 里是一次性实例，明文密码可接受。
+          MYSQL_ROOT_PASSWORD: "123456"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -p123456"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
     steps:
       - uses: actions/checkout@v4
 
@@ -46,8 +72,26 @@ jobs:
           java-version: "17"
           distribution: "temurin"
 
+      - name: Init database schema
+        # sql/init.sql 是 mysqldump 产物，有两个坑：
+        # 1) 里面没有 CREATE DATABASE，必须先建库
+        # 2) 部分表的 INSERT 数据与表结构不同步 —— admin_message 有 9 列，
+        #    但导出的数据只给了 7 个值（缺 feedback_type/feedback_time），
+        #    全量导入会在 "1136 Column count doesn't match value count" 处中断。
+        # 集成测试只需要 schema、不依赖种子数据，所以过滤掉所有 INSERT 行。
+        # --default-character-set=utf8mb4: 中文注释与数据都是 utf8mb4。
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -uroot -p123456 \
+            -e "CREATE DATABASE IF NOT EXISTS ai_knowledge_db CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"
+          grep -v '^INSERT INTO' sql/init.sql > /tmp/schema.sql
+          mysql -h 127.0.0.1 -P 3306 -uroot -p123456 --default-character-set=utf8mb4 \
+            ai_knowledge_db < /tmp/schema.sql
+          # 卡一道闸：表没建出来就别往下跑，否则错误会以更难读的形式出现在测试里
+          mysql -h 127.0.0.1 -P 3306 -uroot -p123456 -N -e \
+            "SELECT CONCAT('tables=', COUNT(*)) FROM information_schema.tables WHERE table_schema='ai_knowledge_db'"
+
       - name: Build and test
-        run: mvn clean test -q
+        run: mvn -B clean test
 
   frontend-build:
     name: Frontend Build
