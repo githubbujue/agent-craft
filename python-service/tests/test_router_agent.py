@@ -30,9 +30,17 @@ class TestClassifyTask:
         """测试识别闲聊-日常"""
         assert router.classify_task("讲个笑话") == TaskType.CHITCHAT
 
-    def test_classify_chitchat_weather(self, router):
-        """测试识别闲聊-天气"""
-        assert router.classify_task("今天天气怎么样") == TaskType.CHITCHAT
+    def test_classify_weather_goes_to_knowledge_qa(self, router):
+        """天气类问题在关键词兜底路径下应走知识问答（而非闲聊）
+
+        背景（2026-11 变更）：「时间天气类」关键词已从闲聊词库移除——归入闲聊会让
+        「零命中 → 联网补救」整条链路失效，而这类问题恰恰最需要联网。
+
+        这里直接断言关键词路径，不依赖本机是否配置 API Key：
+        有 Key 时 `classify()` 走 LLM，CI 无 Key 时走关键词，两条路径行为不同。
+        """
+        result = router.classifier._classify_with_keywords("今天天气怎么样")
+        assert result.intent == IntentType.KNOWLEDGE_QA
 
     def test_classify_knowledge_qa_technical(self, router):
         """测试识别知识问答-技术"""

@@ -27,7 +27,9 @@ jobs:
           pip install pytest flake8
 
       - name: Lint with flake8
-        run: flake8 agent/ tools/ workflows/ core/ --max-line-length=120 --count --select=E9,F63,F7,F82 --show-source --statistics
+        # agent/ 目录已于 2026-11-13 删除（事件总线迁入 core/events.py），此处需同步移除，
+        # 否则 flake8 会报 E902 FileNotFoundError 使整个 job 失败
+        run: flake8 tools/ workflows/ core/ api/ intent/ main.py --max-line-length=120 --count --select=E9,F63,F7,F82 --show-source --statistics
 
       - name: Run tests
         run: pytest tests/ -v --tb=short
