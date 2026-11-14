@@ -635,4 +635,24 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
+--
+-- Table structure for table `user_memory`
+-- 用户长期记忆（Python 侧 UserMemoryClient 使用）
+-- 说明：这里用 CREATE TABLE IF NOT EXISTS 而非 DROP + CREATE，
+--       避免重新导入 init.sql 时清空已积累的用户记忆数据。
+--
+
+CREATE TABLE IF NOT EXISTS `user_memory` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `user_id` varchar(64) NOT NULL COMMENT '用户ID',
+  `memory_key` varchar(64) NOT NULL COMMENT '记忆键, 如 preference.answer_style',
+  `memory_value` text COMMENT '记忆值(JSON)',
+  `source` varchar(32) DEFAULT 'agent' COMMENT '来源: explicit/inferred/agent',
+  `confidence` double DEFAULT '1.0' COMMENT '置信度 0-1',
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_user_key` (`user_id`, `memory_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='用户长期记忆';
+
 -- Dump completed on 2026-05-15 12:56:48

@@ -616,13 +616,13 @@ class ToolRegistry:
 
 ### 3.4 记忆与上下文（真实实现）
 
-真正在链路上跑的记忆只有三层，第四层只有残件：
+真正在链路上跑的记忆是四层（第四层 2026-11-14 接通只读）：
 
 ```
 ① 请求上下文（run_id）   core/run_context.py    contextvars，单次请求内隔离
 ② 会话记忆（Redis）      core/redis_client.py   conversation:{id}:messages，24h TTL
 ③ 知识记忆（向量库）     core/vector_store.py   Milvus 优先，FAISS 兜底
-④ 用户记忆（MySQL）      core/mysql_client.py   ⚠️ 仅定义未调用，表也不在建表脚本里
+④ 用户记忆（MySQL）      core/mysql_client.py   user_memory 表 + 问答链路只读注入（2026-11-14）
 ```
 
 **Java 侧还有一条轨，容易被忽略**：
@@ -652,14 +652,18 @@ Java 的 `ConversationContextService` 从 MySQL 维护 `conversation_context`（
   摘要存 `conversation:{id}:summary`，TTL 1 小时，过期后重新生成。
 - **落库的长记录不喂给模型**：`agent_run` / `agent_step` / `tool_call` 是执行轨迹，`qa_log` 是问答日志
   （带 like/dislike），都只服务管理端与评估，不参与推理。
+- **用户记忆只做了"读"**：2026-11-14 建了 `user_memory` 表，问答链路开头读一次，拼成
+  `[用户长期偏好] {...}` 注入上下文（最多 10 条 / 500 字符）。但**没有自动写入**——不去写就一直是空表。
+  准确说法是"预留并接通了用户记忆的读取通路"，不是"已实现个性化记忆"。
 - **别把设计当实现**：`conversation_context` 表在 Java 侧是**真实读写**的（摘要 / 窗口 / 重要性），
   但 Python 链路从不访问它，`embedding` 字段也始终为空。可以说"Java 有会话摘要、Python 有原文记忆，
-  两者分工"，不能说"实现了用户长期记忆"——那是 `user_memory` 该干的事，而它还没建表。
+  两者分工"。
 
 **面试要点**
 - 为什么分层？→ 生命周期与读写成本的权衡：请求内 contextvars → 24 小时 Redis → 持久化向量库
 - 对话压缩怎么做的？→ 消息超 10 条 LLM 摘要 + 保留最近 5 条原文 + 摘要缓存 1 小时
 - 记忆存在哪、谁在用？→ 必须能说出具体文件和具体 Agent
+- 用户记忆做到哪一步？→ 表 + 只读注入已通，写入与抽取未做（`UserMemoryClient.update_user_memory` 目前无人调用）
 
 ### 3.5 EventBus 与轨迹落库
 

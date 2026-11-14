@@ -77,12 +77,33 @@ class KnowledgeQAAgent:
                 except Exception as e:
                     logger.warning(f"[KnowledgeQAAgent] Failed to read conversation memory: {e}")
 
+            # 1.5 读取用户长期偏好（MySQL user_memory，缺失或异常时静默跳过）
+            #     延迟 import：MySQL 不可用时不影响模块加载与问答主流程
+            user_memory_text = ""
+            if user_id:
+                try:
+                    from core.mysql_client import user_memory_client
+                    memories = user_memory_client.get_user_memory(str(user_id)) or {}
+                    if memories:
+                        items = list(memories.items())[:10]   # 最多 10 条，避免撑爆 Prompt
+                        user_memory_text = json.dumps(dict(items), ensure_ascii=False)
+                        if len(user_memory_text) > 500:
+                            user_memory_text = user_memory_text[:500] + "..."
+                        logger.info(f"[KnowledgeQAAgent] Loaded {len(items)} user memory entries")
+                except Exception as e:
+                    # 长期记忆只是锦上添花，任何异常都不应影响问答主流程
+                    logger.warning(f"[KnowledgeQAAgent] Failed to load user memory: {e}")
+
             # 合并上下文
             full_context = context
             if conversation_history:
                 full_context = f"{context}\n\n{conversation_history}" if context else conversation_history
+            if user_memory_text:
+                block = f"[用户长期偏好] {user_memory_text}"
+                full_context = f"{full_context}\n\n{block}" if full_context else block
             logger.info(f"[KnowledgeQAAgent] prompt_context_len={len(full_context)} "
-                        f"(java_summary={len(context)}, redis_history={len(conversation_history)})")
+                        f"(java_summary={len(context)}, redis_history={len(conversation_history)}, "
+                        f"user_memory={len(user_memory_text)})")
 
             # 2. 判断复杂度，选择链路
             complexity = self.router.classify_complexity(question)
