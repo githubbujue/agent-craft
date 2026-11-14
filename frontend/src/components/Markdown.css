@@ -10,8 +10,15 @@
 .md-body p,
 .md-body li,
 .md-body h1, .md-body h2, .md-body h3, .md-body h4,
-.md-body blockquote, .md-body pre, .md-body table {
+.md-body blockquote, .md-body table {
   white-space: normal;
+}
+
+/* 代码块是唯一例外: <pre> 的存在意义就是保留换行与缩进。
+   曾经把它也写进上面的 normal 列表, 结果整个代码块被折叠成一行 ——
+   看起来像"模型没输出换行", 实际是 CSS 把空白吃掉了。 */
+.md-body pre {
+  white-space: pre;
 }
 
 .md-body > *:first-child { margin-top: 0; }
@@ -57,17 +64,75 @@
   font-family: Consolas, Monaco, monospace;
 }
 
-.md-body pre {
-  background: rgba(0, 0, 0, 0.06);
-  padding: 12px;
-  border-radius: 8px;
-  overflow-x: auto;
+/* 代码块: 外层容器承载底色与圆角, pre 只负责滚动
+   行高必须显式重置 —— 继承 .md-body 的 1.7 (再叠 .message-body 的 1.75)
+   会让代码行间距像隔了一行, 这是"间距太宽"的真正原因 */
+.md-body .code-block {
   margin: 10px 0;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.md-body pre {
+  margin: 0;
+  padding: 10px 12px;
+  background: none;
+  border-radius: 0;
+  overflow-x: auto;
+}
+
+.md-body .code-block pre {
+  line-height: 1.45;
+  font-size: 13px;
+  white-space: pre;
 }
 
 .md-body pre code {
   background: none;
   padding: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* 底部条: 左侧语言, 右侧复制按钮 */
+.md-body .code-block-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px 4px 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.md-body .code-block-lang {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  font-family: Consolas, Monaco, monospace;
+  user-select: none;
+}
+
+.md-body .code-copy-btn {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.55));
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.md-body .code-copy-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text-primary, rgba(0, 0, 0, 0.8));
+}
+
+.md-body .code-copy-btn:active {
+  background: rgba(0, 0, 0, 0.12);
 }
 
 .md-body blockquote {
