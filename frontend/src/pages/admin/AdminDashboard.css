@@ -592,6 +592,32 @@
   white-space: nowrap;
 }
 
+/* 搜索区里的复选框不该继承文本框的边框/内边距/最小宽度（min-width:120px 会把
+   "只看会生效的"这类文案推出去 40px，看起来像布局错乱） */
+.search-item input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--border-light);
+  border-radius: 3px;
+  background: var(--bg-input);
+  cursor: pointer;
+  accent-color: var(--accent-primary);
+}
+
+/* 复选框 + 说明文字，作为一个整体放在 search-item 里 */
+.search-item .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
 .search-item input,
 .search-item select {
   padding: 8px 12px;

@@ -105,15 +105,16 @@ export default function MemoryManagement() {
             </div>
             <div className="search-item">
               <label>筛选</label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'normal' }}>
+              {/* 用 span 而不是嵌套 label：label 套 label 在 HTML 里不合法，
+                  checkbox 的尺寸/间距交给 .search-item input[type=checkbox] */}
+              <span className="checkbox-label">
                 <input
                   type="checkbox"
-                  style={{ width: 'auto' }}
                   checked={onlyEffective}
                   onChange={(e) => setOnlyEffective(e.target.checked)}
                 />
                 只看会生效的（≥ {EFFECTIVE_CONFIDENCE}）
-              </label>
+              </span>
             </div>
             <div className="search-actions">
               <button type="submit" className="btn btn-primary" disabled={loading}>
