@@ -31,6 +31,11 @@ ai:
   service:
     url: ${AI_SERVICE_URL:http://127.0.0.1:8000/api}
 
+# 服务间内部调用（Java -> Python /api/internal/*）
+# 未配置时不会裸奔，而是摘要自动降级为本地关键词兜底（见 SummaryGenerator）
+internal:
+  token: ${INTERNAL_TOKEN:}
+
 # 阿里云短信配置
 aliyun:
   sms:

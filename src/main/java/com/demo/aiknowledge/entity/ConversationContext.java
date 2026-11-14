@@ -42,6 +42,27 @@ public class ConversationContext {
     private String embedding;
 
     /**
+     * 摘要覆盖到的最后一条消息ID（游标）
+     * 用于增量摘要：只处理 id 大于该值的消息
+     */
+    private Long summaryMsgId;
+
+    /**
+     * 摘要版本号，每次重新生成 +1
+     */
+    private Integer summaryVersion;
+
+    /**
+     * 摘要状态：none / generating / ready / failed
+     */
+    private String summaryStatus;
+
+    /**
+     * 摘要最后生成时间
+     */
+    private LocalDateTime summaryUpdateTime;
+
+    /**
      * 上下文窗口大小
      */
     private Integer windowSize;

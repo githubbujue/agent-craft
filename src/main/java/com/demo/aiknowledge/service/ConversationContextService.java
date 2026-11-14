@@ -58,6 +58,16 @@ public interface ConversationContextService {
     String getConversationSummaryIfPresent(Long conversationId);
 
     /**
+     * 按需触发异步摘要生成（增量、可并发抑制、失败不影响主流程）
+     *
+     * <p>触发条件：未覆盖的消息条数达到阈值。抢占方式为 CAS 更新
+     * {@code summary_status}，同一会话同时只允许一个任务在跑。
+     *
+     * @param conversationId 对话ID
+     */
+    void triggerSummaryIfNeeded(Long conversationId);
+
+    /**
      * 保存长期记忆
      *
      * @param conversationId 对话ID

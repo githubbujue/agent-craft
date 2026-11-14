@@ -1,12 +1,11 @@
-from typing import Dict, Any, List
+from typing import Dict, Any
 from tools.base import Tool, ToolSchema, SchemaProperty, ToolMetadata
 from core.config import config
 from core.redis_client import redis_client
-from core.llm import LLMService
 
-# 压缩阈值配置
-COMPRESS_THRESHOLD = 10  # 超过10轮触发压缩
-KEEP_RECENT = 5          # 保留最近5轮完整对话
+# 超过该轮数只返回最近几轮原文；更早的内容由 Java 侧的对话摘要承接
+TRIM_THRESHOLD = 10
+KEEP_RECENT = 5
 
 
 class ConversationMemoryReadTool(Tool):
@@ -71,7 +70,8 @@ class ConversationMemoryReadTool(Tool):
             metadata=metadata
         )
 
-        self.llm_service = LLMService()
+        # 刻意不持有 LLM：摘要生成已收敛到 Java 调用的 /api/internal/summarize，
+        # 这里只负责读原文，避免出现第二个摘要生成器
 
     def execute(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """执行对话记忆读取（含上下文压缩）"""
@@ -92,70 +92,30 @@ class ConversationMemoryReadTool(Tool):
                 "compressed": False
             }
 
-        if total_count <= COMPRESS_THRESHOLD:
+        if total_count <= TRIM_THRESHOLD:
             # 消息不多，直接返回最近的
             messages = redis_client.get_messages(conversation_id, limit)
             return {
                 "messages": messages,
                 "conversation_id": conversation_id,
                 "total_count": total_count,
-                "compressed": False
+                "compressed": False,
+                "truncated": False,
             }
 
-        # 超过阈值，触发压缩
-        # 保留最近 N 轮完整对话
+        # 超过阈值：只返回最近 N 轮原文，更早的内容由 Java 侧的对话摘要承接。
+        # 这里不再生成摘要 —— 摘要的唯一生成器是 /api/internal/summarize，
+        # 生成结果落 MySQL 后随 context 传进来。两边各生成一份会让同一批对话在
+        # Prompt 里出现两段摘要。
         recent_messages = redis_client.get_messages(conversation_id, KEEP_RECENT)
-
-        # 检查是否已有缓存的摘要
-        cached_summary = redis_client.get_summary(conversation_id)
-
-        if cached_summary:
-            summary = cached_summary
-            config.logger.info(f"Using cached summary for conversation {conversation_id}")
-        else:
-            # 获取早期消息用于压缩
-            all_messages = redis_client.get_all_messages(conversation_id)
-            early_messages = all_messages[:-KEEP_RECENT]
-            summary = self._compress_history(early_messages, conversation_id)
-            # 缓存摘要
-            redis_client.set_summary(conversation_id, summary)
-            config.logger.info(f"Compressed {len(early_messages)} messages into summary")
-
-        # 返回：摘要 + 最近5轮
+        config.logger.info(
+            f"Truncated conversation {conversation_id}: total {total_count}, "
+            f"returning latest {KEEP_RECENT} (history summary is provided by Java)"
+        )
         return {
-            "messages": [
-                {"role": "system", "content": f"[历史对话摘要] {summary}"}
-            ] + recent_messages,
+            "messages": recent_messages,
             "conversation_id": conversation_id,
             "total_count": total_count,
-            "compressed": True,
-            "original_count": total_count
+            "compressed": False,
+            "truncated": True,
         }
-
-    def _compress_history(self, messages: List[Dict], conversation_id: str) -> str:
-        """用 LLM 压缩早期对话为摘要"""
-        if not messages:
-            return "无历史对话记录。"
-
-        history_text = "\n".join([
-            f"{m.get('role', 'unknown')}: {m.get('content', '')}"
-            for m in messages
-        ])
-
-        prompt = f"""请将以下对话压缩成简短摘要，保留关键信息：
-1. 用户问了什么问题
-2. AI 回答了什么要点
-3. 用户的偏好或关注点
-
-对话内容：
-{history_text}
-
-请用 2-3 句话概括，不要遗漏重要信息。"""
-
-        try:
-            summary = self.llm_service.chat(prompt)
-            return summary
-        except Exception as e:
-            config.logger.warning(f"Failed to compress history: {e}")
-            # 压缩失败时，返回简化版本
-            return f"用户进行了 {len(messages)} 轮对话，讨论了相关知识问题。"

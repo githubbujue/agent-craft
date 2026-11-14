@@ -1,4 +1,5 @@
 from typing import Dict, Any, Optional, Generator
+from concurrent.futures import ThreadPoolExecutor
 from core.events import EventBus, event_bus
 from workflows.retrieval_agent import RetrievalAgent
 from core.vector_store import vector_store
@@ -9,9 +10,37 @@ from core.config import config
 from tools.registry import tool_registry
 import logging
 import json
+import re
 import time
 
 logger = logging.getLogger(__name__)
+
+# 长期偏好抽取规则：只认用户显式表达（如"以后请用中文回答"），不做模型推测。
+# 每条规则 → (memory_key, 正则, source, confidence)；捕获组 1 即偏好值。
+# 显式指令（"以后/请始终…"）记 explicit + 1.0；带推断成分的记 inferred + 0.8~0.9。
+_PREF_RULES = (
+    ("answer_format", re.compile(
+        r"(?:以后|今后|往后|从现在开始|请始终|请一直)[^。！？\n]{0,12}?"
+        r"(?:用|使用|以)([\u4e00-\u9fa5A-Za-z]{1,10}?)(?:格式|形式|方式)"),
+     "explicit", 1.0),
+    ("answer_language", re.compile(
+        r"(?:以后|今后|往后|从现在开始|请始终|请一直)[^。！？\n]{0,12}?"
+        r"(?:用|使用|以)([\u4e00-\u9fa5A-Za-z]{1,8}?)(?:来)?(?:回答|作答|回复|输出)"),
+     "explicit", 1.0),
+    ("nickname", re.compile(
+        r"(?:以后|今后|往后|请)(?:都)?(?:叫我|称呼我(?:为)?)([\u4e00-\u9fa5A-Za-z0-9]{1,12})"),
+     "inferred", 0.9),
+    ("preference", re.compile(
+        r"我(?:一直|通常|平时)?(?:习惯|更喜欢|喜欢|偏好)([^，。！？、,;；!！?？\n]{2,30})"),
+     "inferred", 0.8),
+)
+
+# 偏好抽取专用线程池：抽取可能要调一次 LLM，绝不能占用请求线程；
+# 2 个并发足够（同一用户很少连着两句都在提偏好）
+_pref_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pref-extract")
+
+# 读侧置信度下限：低于该值的记忆不注入 Prompt，避免一次误抽长期生效
+USER_MEMORY_MIN_CONFIDENCE = 0.6
 
 
 class KnowledgeQAAgent:
@@ -83,9 +112,18 @@ class KnowledgeQAAgent:
             if user_id:
                 try:
                     from core.mysql_client import user_memory_client
-                    memories = user_memory_client.get_user_memory(str(user_id)) or {}
+                    # 低于阈值的记忆不进 Prompt：抽取的误判若长期生效，比没有记忆更糟
+                    memories = user_memory_client.get_user_memory(
+                        str(user_id), min_confidence=USER_MEMORY_MIN_CONFIDENCE
+                    ) or {}
                     if memories:
-                        items = list(memories.items())[:10]   # 最多 10 条，避免撑爆 Prompt
+                        # 写入的是 {"value":..., "quote":...}，注入 Prompt 只取 value，
+                        # 原话 quote 留在库里供排查，不占 Prompt 预算
+                        items = []
+                        for key, value in list(memories.items())[:10]:   # 最多 10 条
+                            if isinstance(value, dict) and "value" in value:
+                                value = value["value"]
+                            items.append((key, value))
                         user_memory_text = json.dumps(dict(items), ensure_ascii=False)
                         if len(user_memory_text) > 500:
                             user_memory_text = user_memory_text[:500] + "..."
@@ -110,9 +148,13 @@ class KnowledgeQAAgent:
             logger.info(f"[KnowledgeQAAgent] Complexity: {complexity}")
 
             if complexity == "medium":
-                return self._ask_l2(question, conversation_id, full_context)
+                result = self._ask_l2(question, conversation_id, full_context)
             else:
-                return self._ask_l1(question, conversation_id, full_context)
+                result = self._ask_l1(question, conversation_id, full_context)
+
+            # 2.5 从用户问题中抽取长期偏好（仅显式/强规则，失败静默，不影响回答）
+            self._maybe_remember(user_id, question)
+            return result
 
         except Exception as e:
             logger.error(f"[KnowledgeQAAgent] QA failed: {e}", exc_info=True)
@@ -429,6 +471,71 @@ class KnowledgeQAAgent:
         except Exception as e:
             logger.warning(f"[KnowledgeQAAgent] Failed to write conversation memory: {e}")
 
+    def _maybe_remember(self, user_id: Optional[str], question: str):
+        """异步抽取用户长期偏好并写入 user_memory（MySQL）。
+
+        交给后台线程：抽取可能要走一次 LLM，绝不能拖慢答案返回。
+        无 user_id / 空问题 / 线程池满，全部静默跳过。
+        """
+        if not user_id or not question or not question.strip():
+            return
+        try:
+            _pref_executor.submit(self._remember_task, str(user_id), question.strip())
+        except Exception as e:
+            # 长期记忆只是锦上添花，连提交失败都不能影响本次回答
+            logger.debug(f"[KnowledgeQAAgent] Skip preference extraction: {e}")
+
+    def _remember_task(self, user_id: str, question: str):
+        """先走 LLM 抽取，没结果再用正则兜底；任何异常只记日志。"""
+        try:
+            from core.preference_extractor import extract_preferences
+
+            items = extract_preferences(question)
+            via = "llm"
+            if not items:
+                items = self._rule_preferences(question)
+                via = "rule"
+            if not items:
+                return
+
+            from core.mysql_client import user_memory_client
+            for item in items:
+                user_memory_client.update_user_memory(
+                    user_id,
+                    item["key"],
+                    {"value": item["value"], "quote": question[:120]},
+                    source=item["source"],
+                    confidence=item["confidence"],
+                )
+            logger.info(
+                "[KnowledgeQAAgent] Remembered user preference keys: %s (via %s)",
+                [i["key"] for i in items], via,
+            )
+        except Exception as e:
+            # 写入失败不影响本次回答
+            logger.warning(f"[KnowledgeQAAgent] Failed to remember user preference: {e}")
+
+    def _rule_preferences(self, question: str):
+        """正则兜底：LLM 不可用或没抽出东西时，覆盖"以后请用中文回答"这类模板句。"""
+        hits = []
+        for key, pattern, source, confidence in _PREF_RULES:
+            m = pattern.search(question)
+            if not m:
+                continue
+            value = (m.group(1) or "").strip(" ，。、,.;；!！?？")
+            if not value:
+                continue
+            # "以后用表格格式回答" 已由 answer_format 命中，避免语言键重复记录
+            if key == "answer_language" and value.endswith(("格式", "形式", "方式")):
+                continue
+            hits.append({
+                "key": key,
+                "value": value,
+                "source": source,
+                "confidence": confidence,
+            })
+        return hits
+
     def _format_history(self, messages: list) -> str:
         """格式化对话历史为上下文字符串"""
         if not messages:
@@ -543,6 +650,9 @@ class KnowledgeQAAgent:
 
             # 5. 后台忠实度评判(非阻塞): 流已发完, 派发线程即返回, 不拖慢收尾
             trigger_faithfulness_judge(question, answer, docs, chain="STREAM")
+
+            # 6. 抽取显式长期偏好(失败静默, 不影响已发出的流式内容)
+            self._maybe_remember(user_id, question)
 
         except Exception as e:
             logger.error(f"[KnowledgeQAAgent] Stream QA failed: {e}", exc_info=True)

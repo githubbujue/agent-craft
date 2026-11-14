@@ -2,7 +2,7 @@ import os
 import json
 import mysql.connector
 from mysql.connector import Error, pooling
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -207,14 +207,20 @@ class UserMemoryClient:
         """从连接池获取连接"""
         return self.get_pool().get_connection()
 
-    def get_user_memory(self, user_id: str) -> Dict[str, Any]:
-        """获取用户所有记忆"""
+    def get_user_memory(self, user_id: str, min_confidence: float = 0.0) -> Dict[str, Any]:
+        """获取用户记忆
+
+        min_confidence: 置信度下限，低于该值的记忆不返回（默认 0.0 = 不过滤）。
+        抽取出来的低置信度记忆不应参与 Prompt —— 一次误抽会长期生效，
+        比没有记忆更糟（见 docs/记忆改造计划.md §5.3）。
+        """
         conn = self._get_connection()
         try:
             cursor = conn.cursor(dictionary=True)
             cursor.execute(
-                "SELECT memory_key, memory_value FROM user_memory WHERE user_id = %s",
-                (user_id,)
+                "SELECT memory_key, memory_value, confidence FROM user_memory "
+                "WHERE user_id = %s AND confidence >= %s",
+                (user_id, min_confidence)
             )
             rows = cursor.fetchall()
             cursor.close()
@@ -228,6 +234,58 @@ class UserMemoryClient:
             except:
                 memory[row["memory_key"]] = row["memory_value"]
         return memory
+
+    def list_user_memory(self, user_id: str,
+                         min_confidence: float = 0.0) -> List[Dict[str, Any]]:
+        """列出用户记忆（带 source/confidence/update_time，供管理端查看与排查）"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT memory_key, memory_value, source, confidence, update_time "
+                "FROM user_memory WHERE user_id = %s AND confidence >= %s "
+                "ORDER BY update_time DESC",
+                (user_id, min_confidence)
+            )
+            rows = cursor.fetchall()
+            cursor.close()
+        finally:
+            conn.close()  # 归还到连接池
+
+        items = []
+        for row in rows:
+            try:
+                value = json.loads(row["memory_value"])
+            except Exception:
+                value = row["memory_value"]
+            update_time = row.get("update_time")
+            items.append({
+                "memory_key": row["memory_key"],
+                "memory_value": value,
+                "source": row["source"],
+                "confidence": row["confidence"],
+                "update_time": update_time.strftime("%Y-%m-%d %H:%M:%S") if update_time else None,
+            })
+        return items
+
+    def delete_user_memory(self, user_id: str, memory_key: Optional[str] = None) -> int:
+        """删除用户记忆；memory_key 为空时删除该用户全部记忆。返回删除行数。"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            if memory_key:
+                cursor.execute(
+                    "DELETE FROM user_memory WHERE user_id = %s AND memory_key = %s",
+                    (user_id, memory_key)
+                )
+            else:
+                cursor.execute("DELETE FROM user_memory WHERE user_id = %s", (user_id,))
+            deleted = cursor.rowcount
+            conn.commit()
+            cursor.close()
+            return deleted
+        finally:
+            conn.close()  # 归还到连接池
 
     def update_user_memory(self, user_id: str, key: str, value: Dict[str, Any],
                            source: str = "agent", confidence: float = 1.0):

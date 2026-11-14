@@ -1,6 +1,7 @@
 package com.demo.aiknowledge.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.demo.aiknowledge.config.CacheConfig;
 import com.demo.aiknowledge.entity.ConversationContext;
 import com.demo.aiknowledge.entity.Message;
@@ -8,11 +9,18 @@ import com.demo.aiknowledge.mapper.ConversationContextMapper;
 import com.demo.aiknowledge.mapper.MessageMapper;
 import com.demo.aiknowledge.service.CacheService;
 import com.demo.aiknowledge.service.ConversationContextService;
+import com.demo.aiknowledge.service.SummaryGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -33,6 +41,15 @@ public class ConversationContextServiceImpl implements ConversationContextServic
     private final ConversationContextMapper conversationContextMapper;
     private final CacheService cacheService;
     private final ObjectMapper objectMapper;
+    private final StringRedisTemplate stringRedisTemplate;
+    private final SummaryGenerator summaryGenerator;
+    /**
+     * 摘要专用线程池（summaryTaskExecutor），与 SSE 转发的 applicationTaskExecutor 隔离。
+     * 用字段注入是因为 @RequiredArgsConstructor 生成的构造参数带不上 @Qualifier，
+     * 而容器里有多个 TaskExecutor，按类型注入会冲突。
+     */
+    @Resource(name = "summaryTaskExecutor")
+    private TaskExecutor taskExecutor;
 
     // 默认上下文窗口大小
     private static final int DEFAULT_WINDOW_SIZE = 10;
@@ -40,6 +57,29 @@ public class ConversationContextServiceImpl implements ConversationContextServic
     private static final int MAX_WINDOW_SIZE = 20;
     // 最小上下文窗口大小
     private static final int MIN_WINDOW_SIZE = 5;
+
+    // 摘要缓存 key：Java 自成命名空间。
+    // 刻意不复用 Python 侧的 conversation:{id}:summary —— 那边写入的是 LLM 压缩摘要，
+    // 且 memory_read 命中后直接使用、不再压缩。两边混用会让 Python 把这里的关键词桩
+    // 当成 LLM 摘要直接注入 Prompt，属于静默的语义污染。第 3 步收敛生成器时再统一。
+    private static final String SUMMARY_CACHE_PREFIX = "conv:summary:";
+    private static final long SUMMARY_CACHE_TTL_SECONDS = 3600;
+
+    // 摘要状态机：none(未生成) / generating(生成中) / ready(可用) / failed(上次失败,可被下次覆盖)
+    private static final String SUMMARY_STATUS_NONE = "none";
+    private static final String SUMMARY_STATUS_GENERATING = "generating";
+    private static final String SUMMARY_STATUS_READY = "ready";
+    private static final String SUMMARY_STATUS_FAILED = "failed";
+
+    // 未覆盖消息达到该条数才触发一次摘要（与旧的"每 5 条"语义保持一致）
+    private static final int SUMMARY_TRIGGER_MIN_NEW_MESSAGES = 5;
+    // 单次任务最多处理的消息条数，防止长会话一次拉爆内存与耗时
+    private static final int SUMMARY_BATCH_LIMIT = 200;
+    // 合并旧摘要时保留的尾部字符数 / 摘要总长上限，防止摘要随轮次无限膨胀
+    private static final int SUMMARY_CARRY_CHARS = 800;
+    private static final int SUMMARY_MAX_CHARS = 2000;
+    // generating 状态超过该分钟数视为任务已死（进程重启/线程池丢失），允许被重新抢占
+    private static final long SUMMARY_STALE_MINUTES = 10;
 
     @Override
     public List<Message> getConversationContext(Long conversationId, int maxMessages) {
@@ -156,10 +196,9 @@ public class ConversationContextServiceImpl implements ConversationContextServic
                 TimeUnit.SECONDS
         );
 
-        // 5. 检查是否需要生成摘要（每5条消息或重要消息）
-        if (shouldGenerateSummary(conversationId, newMessage)) {
-            generateConversationSummary(conversationId);
-        }
+        // 5. 摘要生成移出事务：提交后再按需触发（详情见 triggerSummaryAfterCommit）
+        //    旧实现在事务内全量扫 message 表并写库，每来一条消息都扫一次，事务与行锁被拉长
+        triggerSummaryAfterCommit(conversationId);
 
         // 6. 更新长期记忆（每10条消息或对话结束时）
         if (shouldSaveLongTermMemory(conversationId)) {
@@ -184,43 +223,26 @@ public class ConversationContextServiceImpl implements ConversationContextServic
                 return "";
             }
 
-            // 2. 提取关键信息（简化版，实际应该调用AI服务）
-            StringBuilder summary = new StringBuilder();
-            Set<String> topics = new HashSet<>();
-            List<String> decisions = new ArrayList<>();
-            Map<String, Integer> userPreferences = new HashMap<>();
+            // 2. 构建摘要文本（关键词桩，供第 3 步切换 Python LLM 前的过渡使用）
+            //    这里是一份"全量重算"，不合并旧摘要
+            String summaryText = buildKeywordSummary(null, messages);
 
-            for (Message message : messages) {
-                if ("user".equals(message.getRole())) {
-                    // 提取用户问题中的关键词
-                    extractKeywords(message.getContent(), topics);
-                    // 识别用户偏好
-                    detectUserPreferences(message.getContent(), userPreferences);
-                } else if ("assistant".equals(message.getRole())) {
-                    // 识别AI的建议和决策
-                    detectDecisions(message.getContent(), decisions);
-                }
-            }
-
-            // 3. 构建摘要
-            summary.append("关键话题: ").append(String.join("、", topics)).append("\n");
-            if (!decisions.isEmpty()) {
-                summary.append("关键决策: ").append(String.join("；", decisions)).append("\n");
-            }
-            if (!userPreferences.isEmpty()) {
-                summary.append("用户偏好: ");
-                userPreferences.forEach((key, count) ->
-                        summary.append(key).append("(").append(count).append("次) "));
-                summary.append("\n");
-            }
-
-            String summaryText = summary.toString();
-
-            // 4. 保存到数据库
+            // 3. 保存到数据库
+            //    新行必须 insert：updateById 对 id 为 null 的行影响 0 行且不报错，
+            //    表现为"摘要生成了但库里没有"，是最难排查的那类静默失败
             ConversationContext context = getOrCreateContext(conversationId);
             context.setSummary(summaryText);
+            context.setSummaryMsgId(messages.get(messages.size() - 1).getId());
+            context.setSummaryVersion((context.getSummaryVersion() == null ? 0 : context.getSummaryVersion()) + 1);
+            context.setSummaryStatus(SUMMARY_STATUS_READY);
+            context.setSummaryUpdateTime(LocalDateTime.now());
             context.setUpdateTime(LocalDateTime.now());
-            conversationContextMapper.updateById(context);
+            if (context.getId() == null) {
+                conversationContextMapper.insert(context);
+            } else {
+                conversationContextMapper.updateById(context);
+            }
+            invalidateSummaryCache(conversationId);
 
             log.info("Generated conversation summary - conversationId: {}, summary length: {}",
                     conversationId, summaryText.length());
@@ -233,37 +255,345 @@ public class ConversationContextServiceImpl implements ConversationContextServic
         }
     }
 
-    @Override
-    public String getConversationSummary(Long conversationId) {
-        ConversationContext context = conversationContextMapper.selectOne(
-                new LambdaQueryWrapper<ConversationContext>()
-                        .eq(ConversationContext::getConversationId, conversationId)
-        );
+    /**
+     * 摘要生成在事务提交后触发。
+     *
+     * <p>为什么不能留在事务内：旧的 {@code shouldGenerateSummary} 每次都全量扫 message 表，
+     * 事务与行锁被拉长；而异步线程在事务未提交时又读不到刚插入的消息。
+     */
+    private void triggerSummaryAfterCommit(Long conversationId) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    // 这里只负责把任务丢进线程池，不直接做查询/更新：
+                    // afterCommit 阶段事务连接仍绑定在当前线程，MyBatis 会复用那条连接，
+                    // 写进去不提交、行锁也不释放 —— 表现是状态停在 generating 而任务线程
+                    // 等锁直到超时（实测偶发，且只在并发/紧凑执行时出现）
+                    submitQuietly(() -> triggerSummaryIfNeeded(conversationId));
+                }
+            });
+        } else {
+            triggerSummaryIfNeeded(conversationId);
+        }
+    }
 
-        if (context != null && context.getSummary() != null) {
-            return context.getSummary();
+    private void submitQuietly(Runnable task) {
+        try {
+            taskExecutor.execute(task);
+        } catch (Exception e) {
+            // 线程池拒绝：本轮不生成，状态未被抢占，下条消息会重新触发
+            log.warn("Failed to submit summary task, will retry on next message", e);
+        }
+    }
+
+    @Override
+    public void triggerSummaryIfNeeded(Long conversationId) {
+        boolean claimedOnce = false;
+        try {
+            ConversationContext context = conversationContextMapper.selectOne(
+                    new LambdaQueryWrapper<ConversationContext>()
+                            .eq(ConversationContext::getConversationId, conversationId)
+            );
+            if (context == null) {
+                // 上下文行原本要到"每 10 条消息"保存长期记忆时才创建，这里补一次懒创建，
+                // 否则游标无处存放，摘要永远等不到第一次生成
+                context = new ConversationContext();
+                context.setConversationId(conversationId);
+                context.setSummaryVersion(0);
+                context.setSummaryStatus(SUMMARY_STATUS_NONE);
+                context.setWindowSize(DEFAULT_WINDOW_SIZE);
+                context.setCreateTime(LocalDateTime.now());
+                context.setUpdateTime(LocalDateTime.now());
+                try {
+                    conversationContextMapper.insert(context);
+                } catch (DuplicateKeyException dup) {
+                    // 并发下别人先插入了，重查一次即可（uk_conversation_id 保证唯一）
+                    context = conversationContextMapper.selectOne(
+                            new LambdaQueryWrapper<ConversationContext>()
+                                    .eq(ConversationContext::getConversationId, conversationId)
+                    );
+                    if (context == null) {
+                        return;
+                    }
+                }
+            }
+
+            long baseMsgId = context.getSummaryMsgId() == null ? 0L : context.getSummaryMsgId();
+            Long pending = messageMapper.selectCount(
+                    new LambdaQueryWrapper<Message>()
+                            .eq(Message::getConversationId, conversationId)
+                            .gt(Message::getId, baseMsgId)
+            );
+            if (pending == null || pending < SUMMARY_TRIGGER_MIN_NEW_MESSAGES) {
+                return;
+            }
+
+            // CAS 抢占：只有把 status 从「非 generating」改成 generating 的那一次才继续执行，
+            // 并发场景下其余调用的影响行数为 0，直接放弃 —— 同一会话同时只跑一个任务
+            LocalDateTime staleBefore = LocalDateTime.now().minusMinutes(SUMMARY_STALE_MINUTES);
+            int claimed = conversationContextMapper.update(null,
+                    new LambdaUpdateWrapper<ConversationContext>()
+                            .eq(ConversationContext::getConversationId, conversationId)
+                            .and(w -> w.ne(ConversationContext::getSummaryStatus, SUMMARY_STATUS_GENERATING)
+                                    .or().isNull(ConversationContext::getSummaryStatus)
+                                    // 卡死恢复：update_time 会在每次 UPDATE 时自动刷新，
+                                    // 抢占后超过 10 分钟仍未完成，说明任务已死（进程重启/线程丢失），
+                                    // 否则该会话会永久停在 generating
+                                    .or().lt(ConversationContext::getUpdateTime, staleBefore))
+                            .set(ConversationContext::getSummaryStatus, SUMMARY_STATUS_GENERATING)
+                            // 必须顺带刷新一个时间列：MySQL 对「所有列都赋成原值」的 UPDATE
+                            // 返回 0 行，而卡死恢复场景下 status 本来就是 generating，
+                            // 只改 status 会被当成"没抢到"，卡死状态永远解不开
+                            .set(ConversationContext::getSummaryUpdateTime, LocalDateTime.now())
+            );
+            if (claimed == 0) {
+                log.debug("Summary task already running, skip - conversationId: {}", conversationId);
+                return;
+            }
+            claimedOnce = true;
+
+            taskExecutor.execute(() -> runSummaryTask(conversationId));
+        } catch (Exception e) {
+            // 摘要只是上下文补充，触发失败不能影响消息落库（本方法在事务提交后执行）——
+            // 但"没生成"必须在数据上留痕：只写日志的话，翻日志才知道这个会话的摘要已经
+            // 停在很早的位置，管理端完全看不出来。失败的会话可被下次触发重新抢占。
+            log.warn("Failed to trigger summary, this round is skipped - conversationId: {}",
+                    conversationId, e);
+            if (claimedOnce) {
+                // 只有已经抢到锁才需要归还，否则会把别人的 generating 状态覆盖成 failed
+                resetSummaryStatus(conversationId, SUMMARY_STATUS_FAILED);
+            }
+        }
+    }
+
+    private void resetSummaryStatus(Long conversationId, String status) {
+        try {
+            conversationContextMapper.update(null,
+                    new LambdaUpdateWrapper<ConversationContext>()
+                            .eq(ConversationContext::getConversationId, conversationId)
+                            .set(ConversationContext::getSummaryStatus, status)
+            );
+        } catch (Exception e) {
+            log.warn("Failed to reset summary status - conversationId: {}, status: {}",
+                    conversationId, status, e);
+        }
+    }
+
+    /**
+     * 异步任务本体：只处理游标之后的消息（增量），成功后推进游标并失效 Redis 缓存。
+     * 失败时保留旧摘要，仅把状态记为 failed，下次触发会重新抢占覆盖。
+     */
+    private void runSummaryTask(Long conversationId) {
+        try {
+            ConversationContext context = conversationContextMapper.selectOne(
+                    new LambdaQueryWrapper<ConversationContext>()
+                            .eq(ConversationContext::getConversationId, conversationId)
+            );
+            if (context == null) {
+                return;
+            }
+
+            long baseMsgId = context.getSummaryMsgId() == null ? 0L : context.getSummaryMsgId();
+            List<Message> messages = messageMapper.selectList(
+                    new LambdaQueryWrapper<Message>()
+                            .eq(Message::getConversationId, conversationId)
+                            .gt(Message::getId, baseMsgId)
+                            .orderByAsc(Message::getId)
+                            .last("LIMIT " + SUMMARY_BATCH_LIMIT)
+            );
+
+            if (messages.isEmpty()) {
+                resetSummaryStatus(conversationId, SUMMARY_STATUS_NONE);
+                return;
+            }
+
+            // 优先交给 Python LLM（必须带旧摘要做合并）；不可用/超时/返回非法时降级到本地关键词桩。
+            // 降级也照常推进游标并落库 —— 少内容比"这段对话彻底没摘要"好，
+            // 状态记 failed 只是为了能在数据上看出"这份是降级产物"，不是"没生成"。
+            Optional<String> llmSummary = summaryGenerator.summarize(
+                    conversationId, context.getSummary(), messages);
+            boolean degraded = llmSummary.isEmpty();
+            String summaryText = llmSummary.orElseGet(
+                    () -> buildKeywordSummary(context.getSummary(), messages));
+
+            Long lastMsgId = messages.get(messages.size() - 1).getId();
+            int nextVersion = (context.getSummaryVersion() == null ? 0 : context.getSummaryVersion()) + 1;
+
+            conversationContextMapper.update(null,
+                    new LambdaUpdateWrapper<ConversationContext>()
+                            .eq(ConversationContext::getConversationId, conversationId)
+                            .set(ConversationContext::getSummary, summaryText)
+                            .set(ConversationContext::getSummaryMsgId, lastMsgId)
+                            .set(ConversationContext::getSummaryVersion, nextVersion)
+                            .set(ConversationContext::getSummaryStatus,
+                                    degraded ? SUMMARY_STATUS_FAILED : SUMMARY_STATUS_READY)
+                            .set(ConversationContext::getSummaryUpdateTime, LocalDateTime.now())
+                            .set(ConversationContext::getUpdateTime, LocalDateTime.now())
+            );
+
+            invalidateSummaryCache(conversationId);
+
+            log.info("Summary generated{} - conversationId: {}, covered: {} messages, upToMsgId: {}, version: {}",
+                    degraded ? " (degraded to keyword)" : " by LLM",
+                    conversationId, messages.size(), lastMsgId, nextVersion);
+        } catch (Exception e) {
+            log.error("Summary task failed - conversationId: {}", conversationId, e);
+            resetSummaryStatus(conversationId, SUMMARY_STATUS_FAILED);
+        }
+    }
+
+    private void invalidateSummaryCache(Long conversationId) {
+        try {
+            stringRedisTemplate.delete(summaryCacheKey(conversationId));
+        } catch (Exception e) {
+            log.warn("Failed to invalidate summary cache - conversationId: {}", conversationId, e);
+        }
+    }
+
+    /**
+     * 关键词摘要桩：第 3 步切到 Python LLM 之前的主路径，LLM 不可用时也是兜底。
+     *
+     * @param oldSummary 上一版摘要，增量场景必须传入，否则早期内容会被整段丢弃；
+     *                   全量重算（generateConversationSummary）传 null
+     */
+    private String buildKeywordSummary(String oldSummary, List<Message> messages) {
+        StringBuilder summary = new StringBuilder();
+
+        // 旧摘要只保留尾部：关键词桩的合并很粗糙（同类标签会重复出现），
+        // 但"丢历史"比"重复"严重得多，第 3 步换成 LLM 合并后这里只剩兜底作用
+        if (oldSummary != null && !oldSummary.isBlank()) {
+            String previous = oldSummary.trim();
+            if (previous.length() > SUMMARY_CARRY_CHARS) {
+                previous = previous.substring(previous.length() - SUMMARY_CARRY_CHARS);
+            }
+            summary.append(previous).append("\n");
         }
 
-        // 如果没有摘要，生成一个
+        Set<String> topics = new HashSet<>();
+        List<String> decisions = new ArrayList<>();
+        Map<String, Integer> userPreferences = new HashMap<>();
+
+        for (Message message : messages) {
+            if (message.getContent() == null) {
+                continue;
+            }
+            if ("user".equals(message.getRole())) {
+                // 提取用户问题中的关键词
+                extractKeywords(message.getContent(), topics);
+                // 识别用户偏好
+                detectUserPreferences(message.getContent(), userPreferences);
+            } else if ("assistant".equals(message.getRole())) {
+                // 识别AI的建议和决策
+                detectDecisions(message.getContent(), decisions);
+            }
+        }
+
+        summary.append("关键话题: ").append(String.join("、", topics)).append("\n");
+        if (!decisions.isEmpty()) {
+            summary.append("关键决策: ").append(String.join("；", decisions)).append("\n");
+        }
+        if (!userPreferences.isEmpty()) {
+            summary.append("用户偏好: ");
+            userPreferences.forEach((key, count) ->
+                    summary.append(key).append("(").append(count).append("次) "));
+            summary.append("\n");
+        }
+
+        // 总长兜底：超长直接截尾，避免把 Prompt 预算吃光
+        String text = summary.toString();
+        if (text.length() > SUMMARY_MAX_CHARS) {
+            text = text.substring(text.length() - SUMMARY_MAX_CHARS);
+        }
+        return text;
+    }
+
+    /**
+     * 摘要缺失时的同步兜底：只用关键词桩（毫秒级），绝不在这里调 LLM。
+     *
+     * <p>阈值与异步触发保持一致，避免 2 条消息的会话也生成一份没意义的摘要。
+     */
+    private String backfillSummaryIfNeeded(Long conversationId) {
+        try {
+            Long total = messageMapper.selectCount(
+                    new LambdaQueryWrapper<Message>()
+                            .eq(Message::getConversationId, conversationId)
+            );
+            if (total == null || total < SUMMARY_TRIGGER_MIN_NEW_MESSAGES) {
+                return null;
+            }
+
+            String summary = generateConversationSummary(conversationId);
+            if (summary == null || summary.isBlank()) {
+                return null;
+            }
+            log.info("Summary backfilled by keyword stub - conversationId: {}, messages: {}",
+                    conversationId, total);
+            return summary;
+        } catch (Exception e) {
+            log.warn("Failed to backfill summary - conversationId: {}", conversationId, e);
+            return null;
+        }
+    }
+
+    @Override
+    public String getConversationSummary(Long conversationId) {
+        // 与 getConversationSummaryIfPresent 共用读取路径，避免同一份摘要有两个数据来源
+        String existing = getConversationSummaryIfPresent(conversationId);
+        if (existing != null && !existing.isBlank()) {
+            return existing;
+        }
+
+        // 还没有摘要，现场生成一次（兜底路径；第 3 步改由 Python 异步生成后此路径退居二线）
         return generateConversationSummary(conversationId);
     }
 
     @Override
     public String getConversationSummaryIfPresent(Long conversationId) {
+        // 读取路径收敛：Redis 缓存 → miss 回源 MySQL → 回填缓存
+        // 注：直连 StringRedisTemplate 而非 CacheService —— 摘要就是一段纯文本，
+        // 走 CacheService 会被套上 conv:ctx: 前缀并用 Jackson 序列化，读出来必然对不上
+        String cacheKey = summaryCacheKey(conversationId);
+        try {
+            String cached = stringRedisTemplate.opsForValue().get(cacheKey);
+            if (cached != null && !cached.isBlank()) {
+                return cached;
+            }
+        } catch (Exception e) {
+            // Redis 只是缓存，不可用时继续回源 MySQL
+            log.warn("Failed to read summary cache - conversationId: {}", conversationId, e);
+        }
+
         try {
             ConversationContext context = conversationContextMapper.selectOne(
                     new LambdaQueryWrapper<ConversationContext>()
                             .eq(ConversationContext::getConversationId, conversationId)
             );
             if (context == null || context.getSummary() == null || context.getSummary().isBlank()) {
-                return null;
+                // 空窗兜底：从未生成过摘要时用关键词桩同步补一份（毫秒级，不调 LLM）。
+                // 删掉 Python 侧摘要生成后，早期对话只能靠 MySQL 摘要承接，
+                // 而摘要是异步生成的 —— 首个任务完成前，这段内容两边都没有
+                return backfillSummaryIfNeeded(conversationId);
             }
-            return context.getSummary();
+            String summary = context.getSummary();
+
+            // 回填缓存；失败只影响下一次命中率，不影响本次返回
+            try {
+                stringRedisTemplate.opsForValue()
+                        .set(cacheKey, summary, SUMMARY_CACHE_TTL_SECONDS, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                log.warn("Failed to backfill summary cache - conversationId: {}", conversationId, e);
+            }
+            return summary;
         } catch (Exception e) {
             // 摘要只是上下文补充，读取失败不应影响问答主流程
             log.warn("Failed to read conversation summary - conversationId: {}", conversationId, e);
             return null;
         }
+    }
+
+    private String summaryCacheKey(Long conversationId) {
+        return SUMMARY_CACHE_PREFIX + conversationId;
     }
 
     @Override
@@ -294,6 +624,13 @@ public class ConversationContextServiceImpl implements ConversationContextServic
             context.setWindowSize(windowSize);
 
             // 5. 保存到数据库
+            //    摘要的三个状态字段归异步任务维护，这里用的是旧快照，
+            //    updateById 会把它们写回查询时的旧值，等于把任务刚推进的游标/版本回滚掉
+            context.setSummaryMsgId(null);
+            context.setSummaryVersion(null);
+            context.setSummaryStatus(null);
+            context.setSummaryUpdateTime(null);
+
             context.setUpdateTime(LocalDateTime.now());
             if (context.getId() == null) {
                 context.setCreateTime(LocalDateTime.now());
@@ -302,8 +639,9 @@ public class ConversationContextServiceImpl implements ConversationContextServic
                 conversationContextMapper.updateById(context);
             }
 
-            log.info("Saved long-term memory - conversationId: {}, userId: {}, importance: {:.2f}",
-                    conversationId, userId, importanceScore);
+            // SLF4J 只认 {}，写 {:.2f} 会被当字面量原样打印
+            log.info("Saved long-term memory - conversationId: {}, userId: {}, importance: {}",
+                    conversationId, userId, String.format("%.2f", importanceScore));
 
         } catch (Exception e) {
             log.error("Failed to save long-term memory - conversationId: {}, userId: {}",
@@ -485,30 +823,15 @@ public class ConversationContextServiceImpl implements ConversationContextServic
         return context;
     }
 
-    private boolean shouldGenerateSummary(Long conversationId, Message newMessage) {
-        // 每5条消息生成一次摘要，或者遇到重要消息
-        List<Message> messages = messageMapper.selectList(
-                new LambdaQueryWrapper<Message>()
-                        .eq(Message::getConversationId, conversationId)
-        );
-
-        if (messages.size() % 5 == 0) {
-            return true;
-        }
-
-        // 重要消息触发摘要生成
-        double importance = calculateMessageImportance(newMessage);
-        return importance > 0.7;
-    }
-
     private boolean shouldSaveLongTermMemory(Long conversationId) {
-        // 每10条消息保存一次长期记忆，或者对话结束
-        List<Message> messages = messageMapper.selectList(
+        // 每10条消息保存一次长期记忆。
+        // 用 count 而不是 selectList：原来每来一条消息就把整段会话拉进内存，只为取一个取模
+        Long total = messageMapper.selectCount(
                 new LambdaQueryWrapper<Message>()
                         .eq(Message::getConversationId, conversationId)
         );
 
-        return messages.size() % 10 == 0;
+        return total != null && total > 0 && total % 10 == 0;
     }
 
     private void extractKeywords(String content, Set<String> topics) {

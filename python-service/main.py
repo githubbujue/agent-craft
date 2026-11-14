@@ -10,6 +10,8 @@ load_dotenv(dotenv_path=env_path)
 
 from api.routes import router
 from api.agent_routes import router as agent_router
+from api.memory_routes import router as memory_router
+from api.internal_routes import router as internal_router
 import tools
 
 # Agent 执行留痕: 订阅事件总线, 将执行事件落库 agent_run / agent_step
@@ -31,6 +33,8 @@ app.add_middleware(
 # 注册路由
 app.include_router(router, prefix="/api")
 app.include_router(agent_router, prefix="/api")
+app.include_router(memory_router, prefix="/api")
+app.include_router(internal_router, prefix="/api")
 
 @app.get("/")
 async def root():

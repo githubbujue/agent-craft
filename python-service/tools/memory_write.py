@@ -84,13 +84,9 @@ class ConversationMemoryWriteTool(Tool):
         # 写入Redis
         redis_client.add_message(conversation_id, role, content)
 
-        # 如果对话轮数超过阈值，清除旧摘要（让它在下次读取时重新生成）
-        message_count = redis_client.get_message_count(conversation_id)
-        if message_count > 10:
-            summary = redis_client.get_summary(conversation_id)
-            if summary:
-                redis_client.client.delete(f"conversation:{conversation_id}:summary")
-                config.logger.info(f"Cleared stale summary for conversation {conversation_id}")
+        # 注：这里曾有"超过 10 轮清除旧摘要"的逻辑，已移除。
+        # 摘要的事实源在 MySQL，缓存的失效由 Java 侧在摘要写入后主动删除；
+        # Python 不再维护 conversation:{id}:summary，再删就成了操作一个没人写的 key。
 
         return {
             "success": True,

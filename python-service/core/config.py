@@ -44,6 +44,11 @@ class ConfigManager:
         self.REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
         self.REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 
+        # 内部接口鉴权（Java -> Python 的 /api/internal/*）。调用方是后端服务、没有用户身份，
+        # 因此不复用用户 JWT。未配置时内部接口一律拒绝，同时 Java 侧会自动降级到本地兜底，
+        # 不会因为漏配导致摘要功能整体失效。
+        self.INTERNAL_TOKEN = os.getenv("INTERNAL_TOKEN", "")
+
         # MySQL Configuration
         self.DB_HOST = os.getenv("MYSQL_HOST", "localhost")
         self.DB_PORT = int(os.getenv("MYSQL_PORT", "3306"))

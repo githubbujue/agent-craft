@@ -52,23 +52,16 @@ class RedisClient:
         return self.client.llen(key)
 
     def clear_conversation(self, conversation_id: str):
-        """清空会话"""
-        key = f"conversation:{conversation_id}:messages"
-        summary_key = f"conversation:{conversation_id}:summary"
-        self.client.delete(key)
-        self.client.delete(summary_key)
+        """清空会话的消息列表，并失效 Java 侧的摘要缓存"""
+        self.client.delete(f"conversation:{conversation_id}:messages")
+        # 摘要本体存在 MySQL（事实源），这里只删 Java 的缓存 key（conv:summary:{id}）；
+        # 是否删除 MySQL 里的摘要记录由 Java 侧决定
+        self.client.delete(f"conv:summary:{conversation_id}")
         logger.info(f"Cleared conversation {conversation_id}")
 
-    def get_summary(self, conversation_id: str) -> str:
-        """获取会话摘要"""
-        summary_key = f"conversation:{conversation_id}:summary"
-        return self.client.get(summary_key)
-
-    def set_summary(self, conversation_id: str, summary: str, expire: int = 3600):
-        """设置会话摘要"""
-        summary_key = f"conversation:{conversation_id}:summary"
-        self.client.setex(summary_key, expire, summary)
-        logger.debug(f"Set summary for conversation {conversation_id}")
+    # 注：原先的 get_summary / set_summary 已移除。
+    # 摘要的唯一生成器是 Java 调用的 /api/internal/summarize，事实源在 MySQL，
+    # Python 不再写 conversation:{id}:summary —— 保留这两个方法只会让人以为还有第二个生成器。
 
 # 创建全局实例
 redis_client = RedisClient()

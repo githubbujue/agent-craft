@@ -33,6 +33,11 @@ Write-Host "== [3/5] Java backend (8080) ==" -ForegroundColor Cyan
 # frontend 在 frontend), 以前用相对路径 logs\x.log 就变成了三个不同的物理目录。
 # chcp 65001: 让子进程控制台代码页为 UTF-8; 日志文件编码由进程自己决定,
 # 用 Get-Content 读取时必须加 -Encoding UTF8, 否则 PowerShell 5.1 按 ANSI 解码会显示乱码。
+# 服务间内部调用 token（Java -> Python /api/internal/*）：
+# 必须与 python-service/.env 里的 INTERNAL_TOKEN 完全一致；不一致或不设置时，
+# 摘要不会报错，而是自动降级为本地关键词桩（质量明显下降），所以要改就两处一起改。
+$env:INTERNAL_TOKEN = "r2JuwBzjxxyPvbcdSu8iMaQMJ06SJRl2"
+
 $javaLog = Join-Path $logs "java.log"
 Start-Process -FilePath "cmd.exe" -ArgumentList "/c", ('chcp 65001 >nul && java -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -jar target\ai-knowledge-system-0.0.1-SNAPSHOT.jar > "' + $javaLog + '" 2>&1') -WorkingDirectory $root -WindowStyle Hidden
 Write-Host ("  started (hidden) -> " + $javaLog)

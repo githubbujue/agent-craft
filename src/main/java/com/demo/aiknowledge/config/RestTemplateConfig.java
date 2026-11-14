@@ -17,6 +17,20 @@ public class RestTemplateConfig {
         return new RestTemplate(factory);
     }
 
+    /**
+     * 摘要专用：读超时 10s。
+     *
+     * <p>不能复用上面的 restTemplate —— 那个读超时 180s（给问答用），
+     * 摘要任务一旦卡在网络等待上会长时间占住线程；而且摘要失败可降级，没必要等。
+     */
+    @Bean("summaryRestTemplate")
+    public RestTemplate summaryRestTemplate() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(3000);
+        factory.setReadTimeout(10000);
+        return new RestTemplate(factory);
+    }
+
     @Bean
     public WebClient webClient() {
         return WebClient.builder()
