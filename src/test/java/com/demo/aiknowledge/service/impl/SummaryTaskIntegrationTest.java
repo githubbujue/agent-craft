@@ -5,6 +5,7 @@ import com.demo.aiknowledge.entity.Message;
 import com.demo.aiknowledge.mapper.ConversationContextMapper;
 import com.demo.aiknowledge.service.ConversationContextService;
 import com.demo.aiknowledge.service.SummaryGenerator;
+import com.demo.aiknowledge.support.RequiresLocalInfra;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,8 +31,10 @@ import static org.mockito.Mockito.*;
  * 摘要异步链路的集成验证：真连 MySQL + Redis。
  *
  * <p>只验证第 2 步引入的行为：增量生成、游标推进、旧摘要合并、缓存失效。
- * 需要本地 MySQL/Redis 可用（与主服务一致的环境）。
+ * 需要本地 MySQL/Redis 可用（与主服务一致的环境）；不可达时整类跳过，
+ * 否则 CI 或无库的机器上只会看到一串 Hikari 连接超时。
  */
+@RequiresLocalInfra
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class SummaryTaskIntegrationTest {
 
